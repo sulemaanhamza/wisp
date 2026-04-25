@@ -37,6 +37,10 @@ Click the pencil icon in the menu bar to summon the panel. Type. Press **Esc** t
 - **Lists auto-continue.** Start a line with `- `, `* `, `+ `, `1. `, `A. `, or `a. ` and press Enter — the next marker appears on the new line. Pressing Enter on an empty list item exits the list.
 - **Horizontal rule.** Type `---` on its own line and press Enter to get a clean divider.
 
+### Auto-update
+
+On launch, Wisp quietly checks GitHub Releases. If a newer version exists, a small `↑ vX.Y.Z` appears next to the dismiss hint at the bottom. Click it once — the update downloads in the background, and the indicator switches to `↻ vX.Y.Z ready — restart to apply`. Quit and reopen Wisp (or click the indicator a second time) and the new version takes over. The download lives at `~/Library/Application Support/Wisp/Updates/`.
+
 ## Why
 
 Existing notes apps (Obsidian, Notion, Bear, even Apple Notes) all ask you to think about *where* a note belongs before you can start writing. That friction kills fleeting thoughts. Wisp removes the choice — open, type, close.
@@ -72,6 +76,8 @@ Early but usable. Roadmap:
 - Global hotkey to summon (currently menu bar click only)
 - Persistence (text resets when the app quits)
 - Optional auto-save to a markdown file
+
+In-app updates work today — see Auto-update above.
 
 ## License
 
