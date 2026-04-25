@@ -21,6 +21,7 @@ final class PanelController {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         let visualEffect = NSVisualEffectView()
         visualEffect.material = .hudWindow

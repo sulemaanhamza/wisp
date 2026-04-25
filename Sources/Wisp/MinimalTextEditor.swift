@@ -1,6 +1,13 @@
 import SwiftUI
 import AppKit
 
+private enum Palette {
+    // Gruvbox-inspired warm cream on dark glass — easy on eyes for long writing sessions.
+    static let text = NSColor(red: 0.92, green: 0.86, blue: 0.70, alpha: 1.0)        // #ebdbb2
+    static let cursor = NSColor(red: 0.98, green: 0.95, blue: 0.78, alpha: 1.0)      // #fbf1c7
+    static let selection = NSColor(red: 0.85, green: 0.75, blue: 0.55, alpha: 0.25)  // warm amber tint
+}
+
 struct MinimalTextEditor: NSViewRepresentable {
     @Binding var text: String
     var focusToken: Int
@@ -26,15 +33,15 @@ struct MinimalTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.font = font
-        textView.textColor = .labelColor
-        textView.insertionPointColor = NSColor.white.withAlphaComponent(0.9)
+        textView.textColor = Palette.text
+        textView.insertionPointColor = Palette.cursor
         textView.selectedTextAttributes = [
-            .backgroundColor: NSColor.white.withAlphaComponent(0.2)
+            .backgroundColor: Palette.selection
         ]
         textView.defaultParagraphStyle = paragraph
         textView.typingAttributes = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: Palette.text,
             .paragraphStyle: paragraph,
         ]
         textView.allowsUndo = true
