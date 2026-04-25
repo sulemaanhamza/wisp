@@ -8,7 +8,7 @@ final class PanelController {
 
     init(model: EditorModel) {
         self.model = model
-        let contentRect = NSRect(x: 0, y: 0, width: 680, height: 520)
+        let contentRect = NSRect(x: 0, y: 0, width: 800, height: 640)
         panel = FloatingPanel(
             contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel, .resizable],
