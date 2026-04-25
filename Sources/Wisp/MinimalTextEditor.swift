@@ -110,5 +110,52 @@ struct MinimalTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
         }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                return handleEnter(in: textView)
+            }
+            return false
+        }
+
+        private func handleEnter(in textView: NSTextView) -> Bool {
+            let s = textView.string as NSString
+            let cursor = textView.selectedRange().location
+            let lineRange = s.lineRange(for: NSRange(location: cursor, length: 0))
+            var lineEnd = lineRange.location + lineRange.length
+            if lineEnd > lineRange.location, s.character(at: lineEnd - 1) == 0x0A {
+                lineEnd -= 1
+            }
+            let line = s.substring(with: NSRange(
+                location: lineRange.location,
+                length: lineEnd - lineRange.location
+            ))
+
+            guard let marker = SmartEditing.nextListMarker(for: line) else {
+                return false
+            }
+
+            if marker.isEmpty {
+                // Empty list item: strip the marker, drop a blank line, exit list.
+                let stripRange = NSRange(
+                    location: lineRange.location,
+                    length: cursor - lineRange.location
+                )
+                replace(in: textView, range: stripRange, with: "\n")
+            } else {
+                // Continue the list with the next marker.
+                let insert = "\n" + marker
+                replace(in: textView, range: NSRange(location: cursor, length: 0), with: insert)
+            }
+            return true
+        }
+
+        private func replace(in textView: NSTextView, range: NSRange, with replacement: String) {
+            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+            textView.textStorage?.replaceCharacters(in: range, with: replacement)
+            textView.didChangeText()
+            let newCursor = range.location + (replacement as NSString).length
+            textView.setSelectedRange(NSRange(location: newCursor, length: 0))
+        }
     }
 }
