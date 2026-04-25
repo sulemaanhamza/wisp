@@ -24,6 +24,11 @@ struct EditorView: View {
     }
 
     private var wordCount: Int {
-        model.text.split { $0.isWhitespace }.count
+        var count = 0
+        let text = model.text
+        text.enumerateSubstrings(in: text.startIndex..., options: .byWords) { _, _, _, _ in
+            count += 1
+        }
+        return count
     }
 }
