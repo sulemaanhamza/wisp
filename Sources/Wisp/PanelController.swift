@@ -7,7 +7,7 @@ final class PanelController {
     private let model = EditorModel()
 
     init() {
-        let contentRect = NSRect(x: 0, y: 0, width: 680, height: 480)
+        let contentRect = NSRect(x: 0, y: 0, width: 680, height: 520)
         panel = FloatingPanel(
             contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel, .resizable],
@@ -23,12 +23,14 @@ final class PanelController {
         panel.hidesOnDeactivate = false
 
         let visualEffect = NSVisualEffectView()
-        visualEffect.material = .popover
+        visualEffect.material = .hudWindow
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 14
+        visualEffect.layer?.cornerRadius = 16
         visualEffect.layer?.masksToBounds = true
+        visualEffect.layer?.borderWidth = 1
+        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.08).cgColor
 
         let host = NSHostingView(rootView: EditorView(model: model))
         host.translatesAutoresizingMaskIntoConstraints = false
