@@ -19,6 +19,8 @@ After that it opens normally.
 
 Click the pencil icon in the menu bar to summon the panel. Type. Press **Esc** to dismiss — the panel disappears, your text stays for next time.
 
+**Right-click** the menu bar icon for a small menu with `Open Wisp` and `Quit Wisp`. ⌘Q also quits when the panel is open.
+
 ### Keyboard shortcuts
 
 | Action               | Shortcut         |
