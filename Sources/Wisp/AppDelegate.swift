@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -6,12 +7,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updater = Updater()
     private var menuBarController: MenuBarController?
     private var panelController: PanelController?
+    private let hotKey = HotKeyMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.make(target: self)
         let panel = PanelController(model: model, updater: updater)
         panelController = panel
         menuBarController = MenuBarController { [weak panel] in
+            panel?.toggle()
+        }
+        // ⌥Space opens or dismisses the panel from anywhere.
+        hotKey.register(
+            keyCode: UInt32(kVK_Space),
+            modifiers: UInt32(optionKey)
+        ) { [weak panel] in
             panel?.toggle()
         }
         Task { await updater.check() }
