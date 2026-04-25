@@ -31,14 +31,13 @@ final class PanelController {
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 18
         visualEffect.layer?.masksToBounds = true
-        visualEffect.layer?.borderWidth = 1
-        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
 
-        // Dark tint above the blur, below the content. Guarantees readable
-        // contrast even when the wallpaper or app behind is bright.
+        // Dark tint above the blur, below the content. 50% alpha guarantees
+        // readable contrast on any background — glass still reads as glass
+        // because the blur is still doing its job underneath.
         let tint = NSView()
         tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.30).cgColor
+        tint.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.50).cgColor
         tint.translatesAutoresizingMaskIntoConstraints = false
 
         let host = NSHostingView(rootView: EditorView(model: model))
