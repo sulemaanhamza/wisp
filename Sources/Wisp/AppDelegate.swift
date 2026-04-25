@@ -29,4 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func setSmallFont(_ sender: Any?) { model.fontSize = .small }
     @objc func setMediumFont(_ sender: Any?) { model.fontSize = .medium }
     @objc func setLargeFont(_ sender: Any?) { model.fontSize = .large }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Flush any pending debounced save so quitting never loses the
+        // last few keystrokes.
+        model.flushSave()
+    }
 }
