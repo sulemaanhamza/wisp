@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 
+private let panelSize = CGSize(width: 800, height: 640)
+private let cornerRadius: CGFloat = 18
+
 @MainActor
 final class PanelController {
     private let panel: FloatingPanel
@@ -8,7 +11,7 @@ final class PanelController {
 
     init(model: EditorModel) {
         self.model = model
-        let contentRect = NSRect(x: 0, y: 0, width: 800, height: 640)
+        let contentRect = NSRect(origin: .zero, size: panelSize)
         panel = FloatingPanel(
             contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel, .resizable],
@@ -18,19 +21,45 @@ final class PanelController {
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // System shadow renders against the rectangular window bounds, which
+        // leaves a visible gap at the rounded corners. We draw our own
+        // shadow on the outer container with a shadowPath that matches the
+        // rounded shape exactly.
+        panel.hasShadow = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
         panel.appearance = NSAppearance(named: .darkAqua)
 
+        // Outer container: holds the drop shadow. No clipping (shadow is
+        // drawn outside the layer bounds, so masksToBounds must stay false).
+        let outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
+        outer.wantsLayer = true
+        outer.layer?.shadowColor = NSColor.black.cgColor
+        outer.layer?.shadowOpacity = 0.45
+        outer.layer?.shadowOffset = CGSize(width: 0, height: -10)
+        outer.layer?.shadowRadius = 28
+        outer.layer?.shadowPath = CGPath(
+            roundedRect: CGRect(origin: .zero, size: panelSize),
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
+
+        // Inner container: holds the rounded clip. Everything visible
+        // (blur, tint, editor) lives inside and gets clipped to the
+        // rounded shape.
+        let inner = NSView()
+        inner.wantsLayer = true
+        inner.layer?.cornerRadius = cornerRadius
+        inner.layer?.masksToBounds = true
+        inner.translatesAutoresizingMaskIntoConstraints = false
+
         let visualEffect = NSVisualEffectView()
         visualEffect.material = .fullScreenUI
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
-        visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 18
-        visualEffect.layer?.masksToBounds = true
+        visualEffect.translatesAutoresizingMaskIntoConstraints = false
 
         // Dark tint above the blur, below the content. 50% alpha guarantees
         // readable contrast on any background — glass still reads as glass
@@ -43,21 +72,34 @@ final class PanelController {
         let host = NSHostingView(rootView: EditorView(model: model))
         host.translatesAutoresizingMaskIntoConstraints = false
 
-        visualEffect.addSubview(tint)
-        visualEffect.addSubview(host)
-        NSLayoutConstraint.activate([
-            tint.topAnchor.constraint(equalTo: visualEffect.topAnchor),
-            tint.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
-            tint.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
-            tint.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
+        inner.addSubview(visualEffect)
+        inner.addSubview(tint)
+        inner.addSubview(host)
+        outer.addSubview(inner)
 
-            host.topAnchor.constraint(equalTo: visualEffect.topAnchor),
-            host.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
-            host.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
+        NSLayoutConstraint.activate([
+            inner.topAnchor.constraint(equalTo: outer.topAnchor),
+            inner.bottomAnchor.constraint(equalTo: outer.bottomAnchor),
+            inner.leadingAnchor.constraint(equalTo: outer.leadingAnchor),
+            inner.trailingAnchor.constraint(equalTo: outer.trailingAnchor),
+
+            visualEffect.topAnchor.constraint(equalTo: inner.topAnchor),
+            visualEffect.bottomAnchor.constraint(equalTo: inner.bottomAnchor),
+            visualEffect.leadingAnchor.constraint(equalTo: inner.leadingAnchor),
+            visualEffect.trailingAnchor.constraint(equalTo: inner.trailingAnchor),
+
+            tint.topAnchor.constraint(equalTo: inner.topAnchor),
+            tint.bottomAnchor.constraint(equalTo: inner.bottomAnchor),
+            tint.leadingAnchor.constraint(equalTo: inner.leadingAnchor),
+            tint.trailingAnchor.constraint(equalTo: inner.trailingAnchor),
+
+            host.topAnchor.constraint(equalTo: inner.topAnchor),
+            host.bottomAnchor.constraint(equalTo: inner.bottomAnchor),
+            host.leadingAnchor.constraint(equalTo: inner.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: inner.trailingAnchor),
         ])
 
-        panel.contentView = visualEffect
+        panel.contentView = outer
         panel.center()
     }
 
