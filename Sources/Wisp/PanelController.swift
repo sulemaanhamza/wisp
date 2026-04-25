@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class PanelController {
     private let panel: FloatingPanel
+    private let model = EditorModel()
 
     init() {
         let contentRect = NSRect(x: 0, y: 0, width: 680, height: 480)
@@ -29,7 +30,7 @@ final class PanelController {
         visualEffect.layer?.cornerRadius = 14
         visualEffect.layer?.masksToBounds = true
 
-        let host = NSHostingView(rootView: EditorView())
+        let host = NSHostingView(rootView: EditorView(model: model))
         host.translatesAutoresizingMaskIntoConstraints = false
         visualEffect.addSubview(host)
         NSLayoutConstraint.activate([
@@ -49,6 +50,7 @@ final class PanelController {
         } else {
             panel.center()
             panel.makeKeyAndOrderFront(nil)
+            model.requestFocus()
         }
     }
 }
