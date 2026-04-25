@@ -88,6 +88,15 @@ struct MinimalTextEditor: NSViewRepresentable {
     }
 
     private static func makeFont(size: CGFloat) -> NSFont {
+        // Charter is preinstalled on macOS and designed for on-screen body
+        // reading — wider apertures than New York. Iowan Old Style is the
+        // next-best preinstalled warm serif. New York / system serif close out
+        // the chain so we always land on something.
+        for name in ["Charter", "Iowan Old Style", "New York"] {
+            if let font = NSFont(name: name, size: size) {
+                return font
+            }
+        }
         let baseDescriptor = NSFont.systemFont(ofSize: size).fontDescriptor
         let serifDescriptor = baseDescriptor.withDesign(.serif) ?? baseDescriptor
         return NSFont(descriptor: serifDescriptor, size: size) ?? NSFont.systemFont(ofSize: size)
