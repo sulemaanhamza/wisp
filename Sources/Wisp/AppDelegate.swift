@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = MainMenuBuilder.make()
         let panel = PanelController()
         panelController = panel
         menuBarController = MenuBarController { [weak panel] in
