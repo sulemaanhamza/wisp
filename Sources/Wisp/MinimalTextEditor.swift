@@ -131,6 +131,15 @@ struct MinimalTextEditor: NSViewRepresentable {
                 length: lineEnd - lineRange.location
             ))
 
+            if SmartEditing.isHorizontalRuleTrigger(line) {
+                let replaceRange = NSRange(
+                    location: lineRange.location,
+                    length: lineEnd - lineRange.location
+                )
+                replace(in: textView, range: replaceRange, with: SmartEditing.horizontalRule + "\n")
+                return true
+            }
+
             guard let marker = SmartEditing.nextListMarker(for: line) else {
                 return false
             }

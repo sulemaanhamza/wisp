@@ -1,6 +1,15 @@
 import Foundation
 
 enum SmartEditing {
+    /// Plain-text horizontal rule — 40 unicode box-drawing characters.
+    /// Plain-text instead of a styled run so we don't have to switch
+    /// NSTextView into rich-text mode.
+    static let horizontalRule = String(repeating: "─", count: 40)
+
+    static func isHorizontalRuleTrigger(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespaces) == "---"
+    }
+
     /// Given a line of text, return the marker to insert on the next line if
     /// this line is a list item. Returns `nil` if not a list, or the next
     /// marker (e.g. `"- "`, `"3. "`, `"B. "`). Returns an empty string when
