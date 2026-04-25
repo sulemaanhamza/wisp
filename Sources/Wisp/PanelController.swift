@@ -8,9 +8,11 @@ private let cornerRadius: CGFloat = 18
 final class PanelController {
     private let panel: FloatingPanel
     private let model: EditorModel
+    private let updater: Updater
 
-    init(model: EditorModel) {
+    init(model: EditorModel, updater: Updater) {
         self.model = model
+        self.updater = updater
         let contentRect = NSRect(origin: .zero, size: panelSize)
         panel = FloatingPanel(
             contentRect: contentRect,
@@ -69,7 +71,7 @@ final class PanelController {
         tint.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.50).cgColor
         tint.translatesAutoresizingMaskIntoConstraints = false
 
-        let host = NSHostingView(rootView: EditorView(model: model))
+        let host = NSHostingView(rootView: EditorView(model: model, updater: updater))
         host.translatesAutoresizingMaskIntoConstraints = false
 
         inner.addSubview(visualEffect)

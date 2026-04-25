@@ -30,6 +30,7 @@ final class EditorModel: ObservableObject {
 
 struct EditorView: View {
     @ObservedObject var model: EditorModel
+    @ObservedObject var updater: Updater
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +45,9 @@ struct EditorView: View {
             BottomBar(
                 wordCount: wordCount,
                 fontSize: model.fontSize,
-                onCycleFontSize: { model.cycleFontSize() }
+                onCycleFontSize: { model.cycleFontSize() },
+                updateState: updater.state,
+                onUpdateClick: { updater.handleClick() }
             )
         }
     }

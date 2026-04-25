@@ -4,12 +4,15 @@ struct BottomBar: View {
     let wordCount: Int
     let fontSize: FontSize
     let onCycleFontSize: () -> Void
+    let updateState: UpdateState
+    let onUpdateClick: () -> Void
 
     var body: some View {
         HStack(spacing: 16) {
             Text(wordsLabel)
                 .monospacedDigit()
             Spacer()
+            updateIndicator
             Button(action: onCycleFontSize) {
                 Text("Aa")
                     .font(.system(size: indicatorSize, weight: .medium, design: .serif))
@@ -23,6 +26,28 @@ struct BottomBar: View {
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 28)
         .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var updateIndicator: some View {
+        switch updateState {
+        case .idle:
+            EmptyView()
+        case .available(let version, _):
+            Button(action: onUpdateClick) {
+                Text("↑ v\(version)")
+            }
+            .buttonStyle(.plain)
+            .help("New version available")
+        case .downloading(let version):
+            Text("↓ downloading v\(version)…")
+        case .pending(let version):
+            Button(action: onUpdateClick) {
+                Text("↻ v\(version) ready — restart to apply")
+            }
+            .buttonStyle(.plain)
+            .help("Restart Wisp to apply the update")
+        }
     }
 
     private var indicatorSize: CGFloat {
