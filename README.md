@@ -17,14 +17,15 @@ After that it opens normally.
 
 ## Usage
 
-Click the pencil icon in the menu bar to summon the panel. Type. Press **Esc** to dismiss — the panel disappears, your text stays for next time.
+Press **⌥Space** (Option+Space) from anywhere to summon the panel. Type. Press **Esc** to dismiss — the panel disappears, your text stays for next time.
 
-**Right-click** the menu bar icon for a small menu with `Open Wisp` and `Quit Wisp`. ⌘Q also quits when the panel is open.
+You can also click the pencil icon in the menu bar to open it, or **right-click** the icon for a small menu with `Open Wisp` and `Quit Wisp`.
 
 ### Keyboard shortcuts
 
 | Action               | Shortcut         |
 | -------------------- | ---------------- |
+| Open / dismiss panel | ⌥Space            |
 | Smaller text         | ⌘1               |
 | Default text         | ⌘2               |
 | Larger text          | ⌘3               |
@@ -38,6 +39,10 @@ Click the pencil icon in the menu bar to summon the panel. Type. Press **Esc** t
 
 - **Lists auto-continue.** Start a line with `- `, `* `, `+ `, `1. `, `A. `, or `a. ` and press Enter — the next marker appears on the new line. Pressing Enter on an empty list item exits the list.
 - **Horizontal rule.** Type `---` on its own line and press Enter to get a clean divider.
+
+### Persistence
+
+Your text is saved to `~/Library/Application Support/Wisp/scratchpad.md` — plain markdown, debounced 800ms after the last keystroke, and flushed on quit. Open it in any editor, back it up, or grep it. Nothing is locked in a proprietary database.
 
 ### Auto-update
 
@@ -73,13 +78,7 @@ swift run
 
 ## Status
 
-Early but usable. Roadmap:
-
-- Global hotkey to summon (currently menu bar click only)
-- Persistence (text resets when the app quits)
-- Optional auto-save to a markdown file
-
-In-app updates work today — see Auto-update above.
+Usable for daily writing. Working today: global hotkey, persistence to disk, in-app auto-update, smart list editing, three font sizes. Roadmap from here is mostly polish — customizable hotkey, search across past sessions, optional iCloud sync.
 
 ## License
 
