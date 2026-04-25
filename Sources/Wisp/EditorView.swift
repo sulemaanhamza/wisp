@@ -1,12 +1,30 @@
 import SwiftUI
 
+enum FontSize: Int, CaseIterable {
+    case small = 14
+    case medium = 17
+    case large = 22
+
+    var next: FontSize {
+        let all = FontSize.allCases
+        let idx = all.firstIndex(of: self) ?? 0
+        return all[(idx + 1) % all.count]
+    }
+}
+
 @MainActor
 final class EditorModel: ObservableObject {
     @Published var text: String = ""
     @Published var focusToken: Int = 0
+    @Published var fontSize: FontSize = .medium
 
     func requestFocus() {
         focusToken &+= 1
+    }
+
+    func cycleFontSize() {
+        fontSize = fontSize.next
+        requestFocus()
     }
 }
 
@@ -15,11 +33,19 @@ struct EditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MinimalTextEditor(text: $model.text, focusToken: model.focusToken)
-                .padding(.horizontal, 28)
-                .padding(.top, 28)
-                .padding(.bottom, 4)
-            BottomBar(wordCount: wordCount)
+            MinimalTextEditor(
+                text: $model.text,
+                focusToken: model.focusToken,
+                fontSize: model.fontSize
+            )
+            .padding(.horizontal, 28)
+            .padding(.top, 28)
+            .padding(.bottom, 4)
+            BottomBar(
+                wordCount: wordCount,
+                fontSize: model.fontSize,
+                onCycleFontSize: { model.cycleFontSize() }
+            )
         }
     }
 

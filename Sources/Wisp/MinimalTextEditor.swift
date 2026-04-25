@@ -11,6 +11,7 @@ private enum Palette {
 struct MinimalTextEditor: NSViewRepresentable {
     @Binding var text: String
     var focusToken: Int
+    var fontSize: FontSize
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -22,10 +23,7 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
 
-        let baseDescriptor = NSFont.systemFont(ofSize: 17).fontDescriptor
-        let serifDescriptor = baseDescriptor.withDesign(.serif) ?? baseDescriptor
-        let font = NSFont(descriptor: serifDescriptor, size: 17) ?? NSFont.systemFont(ofSize: 17)
-
+        let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.4
 
@@ -55,6 +53,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         textView.textContainer?.lineFragmentPadding = 0
         textView.string = text
 
+        context.coordinator.lastFontSize = fontSize
         return scrollView
     }
 
@@ -63,12 +62,34 @@ struct MinimalTextEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        if context.coordinator.lastFontSize != fontSize {
+            context.coordinator.lastFontSize = fontSize
+            applyFont(to: textView)
+        }
         if context.coordinator.lastFocusToken != focusToken {
             context.coordinator.lastFocusToken = focusToken
             DispatchQueue.main.async {
                 textView.window?.makeFirstResponder(textView)
             }
         }
+    }
+
+    private func applyFont(to textView: NSTextView) {
+        let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
+        textView.font = font
+        var attrs = textView.typingAttributes
+        attrs[.font] = font
+        textView.typingAttributes = attrs
+        if let storage = textView.textStorage {
+            let range = NSRange(location: 0, length: storage.length)
+            storage.addAttributes([.font: font], range: range)
+        }
+    }
+
+    private static func makeFont(size: CGFloat) -> NSFont {
+        let baseDescriptor = NSFont.systemFont(ofSize: size).fontDescriptor
+        let serifDescriptor = baseDescriptor.withDesign(.serif) ?? baseDescriptor
+        return NSFont(descriptor: serifDescriptor, size: size) ?? NSFont.systemFont(ofSize: size)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -79,6 +100,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var lastFocusToken: Int = 0
+        var lastFontSize: FontSize = .medium
 
         init(text: Binding<String>) {
             self.text = text

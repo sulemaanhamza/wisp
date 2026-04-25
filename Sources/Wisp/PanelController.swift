@@ -4,9 +4,10 @@ import SwiftUI
 @MainActor
 final class PanelController {
     private let panel: FloatingPanel
-    private let model = EditorModel()
+    private let model: EditorModel
 
-    init() {
+    init(model: EditorModel) {
+        self.model = model
         let contentRect = NSRect(x: 0, y: 0, width: 680, height: 520)
         panel = FloatingPanel(
             contentRect: contentRect,

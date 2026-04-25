@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 enum MainMenuBuilder {
-    static func make() -> NSMenu {
+    static func make(target: AnyObject) -> NSMenu {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
@@ -53,6 +53,32 @@ enum MainMenuBuilder {
         )
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
+
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        let smallItem = NSMenuItem(
+            title: "Smaller Text",
+            action: #selector(AppDelegate.setSmallFont(_:)),
+            keyEquivalent: "1"
+        )
+        smallItem.target = target
+        viewMenu.addItem(smallItem)
+        let mediumItem = NSMenuItem(
+            title: "Default Text Size",
+            action: #selector(AppDelegate.setMediumFont(_:)),
+            keyEquivalent: "2"
+        )
+        mediumItem.target = target
+        viewMenu.addItem(mediumItem)
+        let largeItem = NSMenuItem(
+            title: "Larger Text",
+            action: #selector(AppDelegate.setLargeFont(_:)),
+            keyEquivalent: "3"
+        )
+        largeItem.target = target
+        viewMenu.addItem(largeItem)
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
 
         return mainMenu
     }
