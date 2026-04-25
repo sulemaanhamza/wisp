@@ -25,19 +25,33 @@ final class PanelController {
         panel.appearance = NSAppearance(named: .darkAqua)
 
         let visualEffect = NSVisualEffectView()
-        visualEffect.material = .hudWindow
+        visualEffect.material = .fullScreenUI
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 16
+        visualEffect.layer?.cornerRadius = 18
         visualEffect.layer?.masksToBounds = true
         visualEffect.layer?.borderWidth = 1
-        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
+
+        // Dark tint above the blur, below the content. Guarantees readable
+        // contrast even when the wallpaper or app behind is bright.
+        let tint = NSView()
+        tint.wantsLayer = true
+        tint.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.30).cgColor
+        tint.translatesAutoresizingMaskIntoConstraints = false
 
         let host = NSHostingView(rootView: EditorView(model: model))
         host.translatesAutoresizingMaskIntoConstraints = false
+
+        visualEffect.addSubview(tint)
         visualEffect.addSubview(host)
         NSLayoutConstraint.activate([
+            tint.topAnchor.constraint(equalTo: visualEffect.topAnchor),
+            tint.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
+            tint.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
+            tint.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
+
             host.topAnchor.constraint(equalTo: visualEffect.topAnchor),
             host.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
             host.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),

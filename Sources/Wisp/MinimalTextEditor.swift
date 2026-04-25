@@ -2,10 +2,11 @@ import SwiftUI
 import AppKit
 
 private enum Palette {
-    // Gruvbox-inspired warm cream on dark glass — easy on eyes for long writing sessions.
-    static let text = NSColor(red: 0.92, green: 0.86, blue: 0.70, alpha: 1.0)        // #ebdbb2
-    static let cursor = NSColor(red: 0.98, green: 0.95, blue: 0.78, alpha: 1.0)      // #fbf1c7
-    static let selection = NSColor(red: 0.85, green: 0.75, blue: 0.55, alpha: 0.25)  // warm amber tint
+    // Warm off-white on dark tinted glass. Less yellow than cream so it doesn't
+    // wash out when the glass picks up bright background light.
+    static let text = NSColor(red: 0.95, green: 0.93, blue: 0.89, alpha: 1.0)       // warm white
+    static let cursor = NSColor(red: 0.98, green: 0.97, blue: 0.93, alpha: 1.0)     // brighter warm white
+    static let selection = NSColor(white: 1.0, alpha: 0.18)                          // neutral white tint
 }
 
 struct MinimalTextEditor: NSViewRepresentable {
@@ -25,7 +26,7 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = 1.4
+        paragraph.lineHeightMultiple = 1.45
 
         textView.delegate = context.coordinator
         textView.drawsBackground = false
