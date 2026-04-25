@@ -3,8 +3,10 @@ import AppKit
 @MainActor
 final class MenuBarController: NSObject {
     private let statusItem: NSStatusItem
+    private let onClick: () -> Void
 
-    override init() {
+    init(onClick: @escaping () -> Void) {
+        self.onClick = onClick
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -18,6 +20,6 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func handleClick() {
-        // Toggle wiring lands in a later commit.
+        onClick()
     }
 }
