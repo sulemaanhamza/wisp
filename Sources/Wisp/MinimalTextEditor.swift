@@ -99,6 +99,44 @@ struct MinimalTextEditor: NSViewRepresentable {
         if let storage = textView.textStorage {
             let range = NSRange(location: 0, length: storage.length)
             storage.addAttributes([.foregroundColor: palette.text], range: range)
+            dimHorizontalRules(in: storage, palette: palette)
+        }
+    }
+
+    /// Walks the storage and applies `palette.divider` to runs of 3+
+    /// horizontal-rule glyphs (U+2500). Runs the divider should read as a
+    /// hint between paragraphs, not match word-weight.
+    private static func dimHorizontalRules(in storage: NSTextStorage, palette: Palette) {
+        let ns = storage.string as NSString
+        let hrChar: unichar = 0x2500
+        let length = ns.length
+        var runStart = -1
+        var i = 0
+        while i < length {
+            if ns.character(at: i) == hrChar {
+                if runStart < 0 { runStart = i }
+            } else if runStart >= 0 {
+                let runLen = i - runStart
+                if runLen >= 3 {
+                    storage.addAttribute(
+                        .foregroundColor,
+                        value: palette.divider,
+                        range: NSRange(location: runStart, length: runLen)
+                    )
+                }
+                runStart = -1
+            }
+            i += 1
+        }
+        if runStart >= 0 {
+            let runLen = length - runStart
+            if runLen >= 3 {
+                storage.addAttribute(
+                    .foregroundColor,
+                    value: palette.divider,
+                    range: NSRange(location: runStart, length: runLen)
+                )
+            }
         }
     }
 
@@ -159,6 +197,15 @@ struct MinimalTextEditor: NSViewRepresentable {
                     length: lineEnd - lineRange.location
                 )
                 replace(in: textView, range: replaceRange, with: SmartEditing.horizontalRule + "\n")
+                // Dim the just-inserted HR so it reads as a hint immediately,
+                // not only after the next theme/font flip triggers applyPalette.
+                let hrLength = (SmartEditing.horizontalRule as NSString).length
+                let hrRange = NSRange(location: replaceRange.location, length: hrLength)
+                textView.textStorage?.addAttribute(
+                    .foregroundColor,
+                    value: Palette.for(lastTheme).divider,
+                    range: hrRange
+                )
                 return true
             }
 
