@@ -113,6 +113,14 @@ final class PanelController {
         } else {
             panel.center()
             panel.makeKeyAndOrderFront(nil)
+            // Re-apply theme after the panel is realized. The init-time
+            // applyTheme runs before the views are in a window, so the
+            // NSVisualEffectView material doesn't fully commit — most
+            // visibly on the light theme's first show, where the rounded
+            // corners bled darker pixels. Re-applying here is exactly
+            // what the user's "toggle theme" workaround does, just done
+            // automatically.
+            applyTheme(model.theme)
             model.requestFocus()
         }
     }
