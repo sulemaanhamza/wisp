@@ -11,6 +11,7 @@ final class PanelController {
     private let updater: Updater
     private let visualEffect: NSVisualEffectView
     private let tint: NSView
+    private let inner: NSView
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -51,8 +52,8 @@ final class PanelController {
 
         // Inner container: holds the rounded clip. Everything visible
         // (blur, tint, editor) lives inside and gets clipped to the
-        // rounded shape.
-        let inner = NSView()
+        // rounded shape. Border is set per-theme in applyTheme.
+        inner = NSView()
         inner.wantsLayer = true
         inner.layer?.cornerRadius = cornerRadius
         inner.layer?.masksToBounds = true
@@ -122,5 +123,7 @@ final class PanelController {
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
+        inner.layer?.borderColor = chrome.borderColor?.cgColor
+        inner.layer?.borderWidth = chrome.borderWidth
     }
 }
