@@ -268,6 +268,10 @@ struct MinimalTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
 
+            // Emoji shortcode replacement runs first — it may rewrite a
+            // chunk of text, after which we restyle against the result.
+            EmojiReplace.replaceIfMatched(in: textView)
+
             // Live-restyle: reset font to base across the storage, then
             // re-apply heading + bold/italic styling. Cheap enough at
             // scratchpad sizes; keeps everything styled while typing.
