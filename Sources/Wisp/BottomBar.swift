@@ -21,6 +21,7 @@ struct BottomBar: View {
                     .frame(width: 14, alignment: .center)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("Switch to \(theme == .dark ? "light" : "dark") theme")
             Button(action: onCycleFontSize) {
                 Text("Aa")
@@ -28,6 +29,7 @@ struct BottomBar: View {
                     .frame(width: 22, alignment: .center)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("Cycle text size (⌘1 / ⌘2 / ⌘3)")
             Text("esc to close")
         }
@@ -47,6 +49,7 @@ struct BottomBar: View {
                 Text("↑ v\(version)")
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("New version available")
         case .downloading(let version):
             Text("↓ downloading v\(version)…")
@@ -55,6 +58,7 @@ struct BottomBar: View {
                 Text("↻ v\(version) ready — restart to apply")
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .help("Restart Wisp to apply the update")
         }
     }

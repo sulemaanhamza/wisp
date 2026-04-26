@@ -23,6 +23,7 @@ struct HeaderBar: View {
                                 .lineLimit(1)
                         }
                         .buttonStyle(.plain)
+                        .pointerCursor()
                         .help("Jump to “\(heading.name)”")
                     }
                 }
