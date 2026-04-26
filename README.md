@@ -30,6 +30,7 @@ You can also click the pencil icon in the menu bar to open it, or **right-click*
 | Action               | Shortcut         |
 | -------------------- | ---------------- |
 | Open / dismiss panel | ⌥Space            |
+| Bold / Italic        | ⌘B / ⌘I          |
 | Smaller text         | ⌘1               |
 | Default text         | ⌘2               |
 | Larger text          | ⌘3               |
@@ -43,6 +44,8 @@ You can also click the pencil icon in the menu bar to open it, or **right-click*
 
 - **Lists auto-continue.** Start a line with `- `, `* `, `+ `, `1. `, `A. `, or `a. ` and press Enter — the next marker appears on the new line. Pressing Enter on an empty list item exits the list.
 - **Horizontal rule.** Type `---` on its own line and the moment you hit the third hyphen, it becomes a dim divider — no Enter required.
+- **Bold and italic.** Select text and press ⌘B for `**bold**` or ⌘I for `*italic*`. The asterisks stay (it's still plain markdown on disk) but the run between them renders bold / italic inline. Hit the same shortcut again to unwrap.
+- **Emoji shortcodes.** Type one of the curated codes and it expands the moment the trigger character lands: `:)` `:(` `:rocket:` `:fire:` `:heart:` `:check:` `:x:` `:star:` `:bulb:` `:warning:` → 🙂 🙁 🚀 🔥 ❤️ ✅ ❌ ⭐ 💡 ⚠️. Word shortcodes only fire after a space or line break so `Note:rocket:` mid-prose stays as you typed it.
 
 ### Headings
 
