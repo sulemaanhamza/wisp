@@ -36,14 +36,23 @@ final class PanelController {
         // layer's own rendering area so the shadow casts from a rounded
         // shape rather than the rectangular bounds. masksToBounds stays
         // false so the shadow can still extend outside the rounded shape.
-        // DIAGNOSTIC v0.1.19: outer drop shadow disabled. If the corner
-        // bleed disappears with this, the shadow is the cause and we
-        // rebuild it via a different mechanism in the next release.
+        // Outer container: holds the drop shadow. cornerRadius rounds the
+        // layer's own rendering area; masksToBounds stays false so the
+        // shadow extends outside the rounded shape.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
         outer.layer?.cornerRadius = cornerRadius
         outer.layer?.masksToBounds = false
-        outer.layer?.shadowOpacity = 0
+        outer.layer?.shadowColor = NSColor.black.cgColor
+        outer.layer?.shadowOpacity = 0.20
+        outer.layer?.shadowOffset = CGSize(width: 0, height: -6)
+        outer.layer?.shadowRadius = 18
+        outer.layer?.shadowPath = CGPath(
+            roundedRect: CGRect(origin: .zero, size: panelSize),
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
 
         // Inner container: holds the rounded clip. Both cornerRadius+
         // masksToBounds AND a CAShapeLayer mask for redundancy. Border
@@ -151,6 +160,11 @@ final class PanelController {
         panel.appearance = NSAppearance(named: chrome.appearance)
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
+        // Hide the blur entirely on light theme — the white tint covers
+        // it 100% anyway, and on first show the blur compositing renders
+        // with stale dark appearance at the corners until a theme toggle
+        // forces a re-composite. With it hidden, there's nothing to leak.
+        visualEffect.isHidden = (theme == .light)
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
         inner.layer?.borderColor = chrome.borderColor?.cgColor
         inner.layer?.borderWidth = chrome.borderWidth
