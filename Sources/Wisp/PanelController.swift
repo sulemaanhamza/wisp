@@ -26,39 +26,32 @@ final class PanelController {
         )
         panel.level = .floating
         panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.backgroundColor = NSColor(deviceRed: 0, green: 0, blue: 0, alpha: 0)
+        // System shadow follows the rendered alpha mask, so it shapes itself
+        // around our rounded inner view automatically. Earlier we drew a
+        // custom shadow on outer.layer with shadowPath — that one leaked
+        // into the corner gap (between rectangular window bounds and
+        // rounded content) and was the source of all the corner-bleed
+        // through v0.1.23. Removing it entirely and using the system
+        // shadow gave us back a clean rounded shadow with no corner leak.
+        panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
 
-        // Outer container: holds the drop shadow. cornerRadius rounds the
-        // layer's own rendering area so the shadow casts from a rounded
-        // shape rather than the rectangular bounds. masksToBounds stays
-        // false so the shadow can still extend outside the rounded shape.
-        // Outer container: holds the drop shadow. cornerRadius rounds the
-        // layer's own rendering area; masksToBounds stays false so the
-        // shadow extends outside the rounded shape.
+        // Outer container: just holds the rounded inner. No own shadow,
+        // no own bg. cornerRadius and masksToBounds=false stay so the
+        // layer has a defined shape — but it has nothing to render here,
+        // so the system computes shadow purely from the inner's alpha.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
         outer.layer?.cornerRadius = cornerRadius
         outer.layer?.masksToBounds = false
-        outer.layer?.shadowColor = NSColor.black.cgColor
-        outer.layer?.shadowOpacity = 0.20
-        outer.layer?.shadowOffset = CGSize(width: 0, height: -6)
-        outer.layer?.shadowRadius = 18
-        outer.layer?.shadowPath = CGPath(
-            roundedRect: CGRect(origin: .zero, size: panelSize),
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        )
 
-        // Inner container: holds the rounded clip. Both cornerRadius+
-        // masksToBounds AND a CAShapeLayer mask for redundancy. Border
-        // back to inner.layer.borderColor/borderWidth (the shape-layer
-        // border experiment didn't fix the corner bleed and the user
-        // wants the visible border restored).
+        // Inner container: holds the rounded clip via cornerRadius +
+        // masksToBounds and an explicit CAShapeLayer mask. The mask is
+        // belt-and-suspenders against the implicit-mask-doesn't-clip-
+        // sublayers issue we hit early on.
         inner = NSView()
         inner.wantsLayer = true
         inner.layer?.cornerRadius = cornerRadius
@@ -74,12 +67,6 @@ final class PanelController {
         )
         inner.layer?.mask = maskLayer
 
-        // Visual effect view: clip its own layer to the rounded shape so
-        // the blur output is rounded independent of inner's mask. Some
-        // first-render cases the inner mask isn't applied to the
-        // visualEffect's blur compositing; clipping at the visualEffect
-        // layer itself makes sure dark blur material can't bleed through
-        // the corner gap.
         visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
@@ -142,14 +129,13 @@ final class PanelController {
             applyTheme(model.theme)
             model.requestFocus()
             model.refreshPlaceholder()
-
-            // Force a re-render of the visual effect blur and invalidate
-            // any system shadow.
+            // Recompute shadow against current content alpha and force a
+            // visual-effect re-render so the blur picks up the right
+            // appearance on first show.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.visualEffect.state = .inactive
                 self.visualEffect.state = .active
-                self.visualEffect.needsDisplay = true
                 self.panel.invalidateShadow()
             }
         }
