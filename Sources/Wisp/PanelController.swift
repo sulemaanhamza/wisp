@@ -39,33 +39,19 @@ final class PanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
 
-        // Outer container: just holds the rounded inner. No own shadow,
-        // no own bg. cornerRadius and masksToBounds=false stay so the
-        // layer has a defined shape — but it has nothing to render here,
-        // so the system computes shadow purely from the inner's alpha.
+        // Outer container: just hosts inner. No own shadow, no own bg.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
-        outer.layer?.cornerRadius = cornerRadius
-        outer.layer?.masksToBounds = false
 
-        // Inner container: holds the rounded clip via cornerRadius +
-        // masksToBounds and an explicit CAShapeLayer mask. The mask is
-        // belt-and-suspenders against the implicit-mask-doesn't-clip-
-        // sublayers issue we hit early on.
+        // Inner container: rounded clip via cornerRadius + masksToBounds.
+        // No CAShapeLayer mask here — its fixed path didn't grow with
+        // window resize, which hid the bottom bar when the user dragged
+        // the panel larger. cornerRadius adapts automatically.
         inner = NSView()
         inner.wantsLayer = true
         inner.layer?.cornerRadius = cornerRadius
         inner.layer?.masksToBounds = true
         inner.translatesAutoresizingMaskIntoConstraints = false
-        let maskLayer = CAShapeLayer()
-        maskLayer.frame = CGRect(origin: .zero, size: panelSize)
-        maskLayer.path = CGPath(
-            roundedRect: CGRect(origin: .zero, size: panelSize),
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        )
-        inner.layer?.mask = maskLayer
 
         visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
