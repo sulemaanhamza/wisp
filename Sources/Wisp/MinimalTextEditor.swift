@@ -91,6 +91,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         if let storage = textView.textStorage {
             let range = NSRange(location: 0, length: storage.length)
             storage.addAttributes([.font: font], range: range)
+            Self.styleHeadings(in: storage, baseFont: font)
         }
     }
 
@@ -114,7 +115,47 @@ struct MinimalTextEditor: NSViewRepresentable {
             let range = NSRange(location: 0, length: storage.length)
             storage.addAttributes([.foregroundColor: palette.text], range: range)
             dimHorizontalRules(in: storage, palette: palette)
+            styleHeadings(in: storage, baseFont: font)
         }
+    }
+
+    /// Apply bold + scaled font to lines that begin with a markdown heading
+    /// marker (`#` through `######`). Plain text on disk; this is just a
+    /// per-range font attribute so the heading reads as a section title
+    /// without leaving plain-text mode.
+    private static func styleHeadings(in storage: NSTextStorage, baseFont: NSFont) {
+        let ns = storage.string as NSString
+        let total = ns.length
+        var lineStart = 0
+        while lineStart < total {
+            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
+            let raw = ns.substring(with: lineRange)
+            let line = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+            if let match = line.firstMatch(of: /^(#{1,6})\s+(\S.*)/) {
+                _ = match.2
+                let level = match.1.count
+                let font = headingFont(level: level, baseFont: baseFont)
+                var styleRange = lineRange
+                if styleRange.length > 0,
+                   ns.character(at: styleRange.location + styleRange.length - 1) == 0x0A {
+                    styleRange.length -= 1
+                }
+                storage.addAttribute(.font, value: font, range: styleRange)
+            }
+            lineStart = lineRange.location + lineRange.length
+        }
+    }
+
+    private static func headingFont(level: Int, baseFont: NSFont) -> NSFont {
+        let baseSize = baseFont.pointSize
+        let scaledSize: CGFloat
+        switch level {
+        case 1: scaledSize = baseSize * 1.20
+        case 2: scaledSize = baseSize * 1.10
+        default: scaledSize = baseSize
+        }
+        let boldDescriptor = baseFont.fontDescriptor.withSymbolicTraits(.bold)
+        return NSFont(descriptor: boldDescriptor, size: scaledSize) ?? baseFont
     }
 
     /// Walks the storage and applies `palette.divider` to runs of 3+
@@ -184,6 +225,16 @@ struct MinimalTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+
+            // Live-restyle headings: reset font to base across the storage,
+            // then re-apply the bold/scaled font to heading lines. Cheap
+            // enough at scratchpad sizes; keeps headings styled while typing.
+            if let storage = textView.textStorage {
+                let baseFont = MinimalTextEditor.makeFont(size: lastFontSize.pointSize)
+                let total = NSRange(location: 0, length: storage.length)
+                storage.addAttribute(.font, value: baseFont, range: total)
+                MinimalTextEditor.styleHeadings(in: storage, baseFont: baseFont)
+            }
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
