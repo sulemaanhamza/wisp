@@ -4,6 +4,10 @@ A dead-simple macOS scratchpad. Lives in your menu bar, opens with one click, gi
 
 Not a notes app. Not a todo app. Just a place for the thing you need to write down *right now*, before it's gone.
 
+<p align="center">
+  <img src="docs/screenshot.png" width="720" alt="Wisp — light theme, summoned with ⌥Space">
+</p>
+
 ## Install
 
 Grab the latest `Wisp-X.Y.Z.zip` from [Releases](https://github.com/sulemaanhamza/wisp/releases), unzip, and drag `Wisp.app` to `/Applications`.
