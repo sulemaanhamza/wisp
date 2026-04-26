@@ -33,6 +33,15 @@ final class EditorModel: ObservableObject {
     @Published var focusToken: Int = 0
     @Published var scrollToken: Int = 0
     private(set) var scrollTarget: Int = 0
+    @Published private(set) var placeholder: String = ""
+
+    private static let placeholders = [
+        "What's on your mind?",
+        "Type your first thought…",
+        "Write it down before it's gone.",
+        "Capture it before you forget.",
+        "Anything to remember?",
+    ]
     @Published var fontSize: FontSize = .medium {
         didSet {
             guard didLoad else { return }
@@ -66,6 +75,7 @@ final class EditorModel: ObservableObject {
         if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
             text = loaded
         }
+        placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
         didLoad = true
     }
 
@@ -86,6 +96,10 @@ final class EditorModel: ObservableObject {
     func jumpTo(_ heading: Heading) {
         scrollTarget = heading.lineStart
         scrollToken &+= 1
+    }
+
+    func refreshPlaceholder() {
+        placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
     }
 
     /// Force a synchronous flush — call from applicationWillTerminate so an
@@ -129,17 +143,27 @@ struct EditorView: View {
             HeaderBar(headings: model.headings) { heading in
                 model.jumpTo(heading)
             }
-            MinimalTextEditor(
-                text: $model.text,
-                focusToken: model.focusToken,
-                scrollToken: model.scrollToken,
-                scrollTarget: model.scrollTarget,
-                fontSize: model.fontSize,
-                theme: model.theme
-            )
-            .padding(.horizontal, 28)
-            .padding(.top, model.headings.isEmpty ? 28 : 4)
-            .padding(.bottom, 4)
+            ZStack(alignment: .topLeading) {
+                MinimalTextEditor(
+                    text: $model.text,
+                    focusToken: model.focusToken,
+                    scrollToken: model.scrollToken,
+                    scrollTarget: model.scrollTarget,
+                    fontSize: model.fontSize,
+                    theme: model.theme
+                )
+                .padding(.horizontal, 28)
+                .padding(.top, model.headings.isEmpty ? 28 : 4)
+                .padding(.bottom, 4)
+                if model.text.isEmpty {
+                    Text(model.placeholder)
+                        .font(.custom("Charter", size: model.fontSize.pointSize))
+                        .foregroundStyle(.tertiary)
+                        .allowsHitTesting(false)
+                        .padding(.horizontal, 28)
+                        .padding(.top, model.headings.isEmpty ? 28 : 4)
+                }
+            }
             BottomBar(
                 wordCount: wordCount,
                 fontSize: model.fontSize,

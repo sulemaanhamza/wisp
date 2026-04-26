@@ -116,6 +116,7 @@ final class PanelController {
             panel.makeKeyAndOrderFront(nil)
             applyTheme(model.theme)
             model.requestFocus()
+            model.refreshPlaceholder()
 
             // Cold launches (especially via `open` after an auto-update
             // relaunch) sometimes leave the visualEffect material and the
