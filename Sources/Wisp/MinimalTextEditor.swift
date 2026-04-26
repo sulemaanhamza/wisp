@@ -17,7 +17,7 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
 
-        let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
+        let font = Self.makeFont(size: fontSize.pointSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.45
 
@@ -55,7 +55,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
         if context.coordinator.lastTheme != theme {
             context.coordinator.lastTheme = theme
-            let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
+            let font = Self.makeFont(size: fontSize.pointSize)
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineHeightMultiple = 1.45
             Self.applyPalette(Palette.for(theme), to: textView, font: font, paragraph: paragraph)
@@ -69,7 +69,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     }
 
     private func applyFont(to textView: NSTextView) {
-        let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
+        let font = Self.makeFont(size: fontSize.pointSize)
         textView.font = font
         var attrs = textView.typingAttributes
         attrs[.font] = font

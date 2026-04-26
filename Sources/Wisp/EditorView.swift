@@ -1,9 +1,17 @@
 import SwiftUI
 
-enum FontSize: Int, CaseIterable {
-    case small = 14
-    case medium = 17
-    case large = 22
+enum FontSize: String, CaseIterable {
+    case small
+    case medium
+    case large
+
+    var pointSize: CGFloat {
+        switch self {
+        case .small: return 17
+        case .medium: return 20
+        case .large: return 24
+        }
+    }
 
     var next: FontSize {
         let all = FontSize.allCases
@@ -21,7 +29,12 @@ final class EditorModel: ObservableObject {
         }
     }
     @Published var focusToken: Int = 0
-    @Published var fontSize: FontSize = .medium
+    @Published var fontSize: FontSize = .medium {
+        didSet {
+            guard didLoad else { return }
+            UserDefaults.standard.set(fontSize.rawValue, forKey: "FontSize")
+        }
+    }
     @Published var theme: Theme = .dark {
         didSet {
             UserDefaults.standard.set(theme.rawValue, forKey: "Theme")
@@ -41,6 +54,10 @@ final class EditorModel: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "Theme"),
            let t = Theme(rawValue: saved) {
             theme = t
+        }
+        if let saved = UserDefaults.standard.string(forKey: "FontSize"),
+           let f = FontSize(rawValue: saved) {
+            fontSize = f
         }
         if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
             text = loaded
