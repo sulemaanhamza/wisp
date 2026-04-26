@@ -54,11 +54,25 @@ final class PanelController {
         // Inner container: holds the rounded clip. Everything visible
         // (blur, tint, editor) lives inside and gets clipped to the
         // rounded shape. Border is set per-theme in applyTheme.
+        //
+        // Clipping uses an explicit CAShapeLayer mask rather than
+        // cornerRadius+masksToBounds. The implicit mask was unreliable
+        // for sublayers on first render (clipping to the rectangular
+        // bounds instead of the rounded shape) — that produced the
+        // first-launch corner bleed. cornerRadius stays so the light
+        // theme's border still rounds correctly.
         inner = NSView()
         inner.wantsLayer = true
         inner.layer?.cornerRadius = cornerRadius
-        inner.layer?.masksToBounds = true
         inner.translatesAutoresizingMaskIntoConstraints = false
+        let maskLayer = CAShapeLayer()
+        maskLayer.path = CGPath(
+            roundedRect: CGRect(origin: .zero, size: panelSize),
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
+        inner.layer?.mask = maskLayer
 
         visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
@@ -118,24 +132,13 @@ final class PanelController {
             model.requestFocus()
             model.refreshPlaceholder()
 
-            // Cold launches (especially via `open` after an auto-update
-            // relaunch) sometimes leave the visualEffect material and the
-            // outer drop-shadow path partially committed even after the
-            // immediate post-orderFront pass. Defer one more pass to the
-            // next runloop tick, re-asserting both the theme and the
-            // shadow path, then force a redraw.
+            // Belt-and-suspenders: defer a redraw to the next runloop in
+            // case the visualEffect material needs another tick to commit.
+            // The CAShapeLayer mask should handle clipping reliably, but
+            // this catches any other paint-cycle quirks for free.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.applyTheme(self.model.theme)
-                self.outer.layer?.shadowPath = CGPath(
-                    roundedRect: CGRect(origin: .zero, size: panelSize),
-                    cornerWidth: cornerRadius,
-                    cornerHeight: cornerRadius,
-                    transform: nil
-                )
                 self.visualEffect.needsDisplay = true
-                self.inner.needsDisplay = true
-                self.outer.needsDisplay = true
             }
         }
     }
