@@ -10,7 +10,18 @@ Not a notes app. Not a todo app. Just a place for the thing you need to write do
 
 ## Install
 
-Grab the latest `Wisp-X.Y.Z.zip` from [Releases](https://github.com/sulemaanhamza/wisp/releases), unzip, and drag `Wisp.app` to `/Applications`.
+### Homebrew (recommended)
+
+```sh
+brew tap sulemaanhamza/wisp
+brew install --cask wisp
+```
+
+That's it — no Gatekeeper warning, no `xattr` dance. Future updates: `brew upgrade --cask wisp`.
+
+### Manual
+
+Grab the latest `Wisp-X.Y.Z.zip` from [Releases](https://github.com/sulemaanhamza/wisp/releases), unzip, drag `Wisp.app` to `/Applications`.
 
 Wisp is unsigned (no Apple Developer account), so the first launch needs one of:
 
