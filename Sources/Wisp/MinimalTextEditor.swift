@@ -92,6 +92,7 @@ struct MinimalTextEditor: NSViewRepresentable {
             let range = NSRange(location: 0, length: storage.length)
             storage.addAttributes([.font: font], range: range)
             Self.styleHeadings(in: storage, baseFont: font)
+            Self.styleBoldItalic(in: storage, baseFont: font)
         }
     }
 
@@ -116,6 +117,7 @@ struct MinimalTextEditor: NSViewRepresentable {
             storage.addAttributes([.foregroundColor: palette.text], range: range)
             dimHorizontalRules(in: storage, palette: palette)
             styleHeadings(in: storage, baseFont: font)
+            styleBoldItalic(in: storage, baseFont: font)
         }
     }
 
@@ -156,6 +158,46 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
         let boldDescriptor = baseFont.fontDescriptor.withSymbolicTraits(.bold)
         return NSFont(descriptor: boldDescriptor, size: scaledSize) ?? baseFont
+    }
+
+    /// Render `**bold**` and `*italic*` markdown runs with bold / italic
+    /// font traits added to whatever font is currently at that range.
+    /// Stays plain on disk; the asterisks remain visible to the user.
+    private static func styleBoldItalic(in storage: NSTextStorage, baseFont: NSFont) {
+        let text = storage.string
+        for match in text.matches(of: /\*\*([^*\n]+)\*\*/) {
+            let nsRange = NSRange(match.range, in: text)
+            let current = currentFont(in: storage, at: nsRange.location, fallback: baseFont)
+            storage.addAttribute(.font, value: traitFont(current, traits: .bold), range: nsRange)
+        }
+        // Italic: *content*, skipping matches that touch another `*` on
+        // either side (which would mean the match is part of a **bold**).
+        // Swift Regex literals don't support lookbehind, so we filter
+        // post-match instead.
+        for match in text.matches(of: /\*([^*\n]+)\*/) {
+            let r = match.range
+            if r.lowerBound > text.startIndex,
+               text[text.index(before: r.lowerBound)] == "*" {
+                continue
+            }
+            if r.upperBound < text.endIndex, text[r.upperBound] == "*" {
+                continue
+            }
+            let nsRange = NSRange(r, in: text)
+            let current = currentFont(in: storage, at: nsRange.location, fallback: baseFont)
+            storage.addAttribute(.font, value: traitFont(current, traits: .italic), range: nsRange)
+        }
+    }
+
+    private static func currentFont(in storage: NSTextStorage, at location: Int, fallback: NSFont) -> NSFont {
+        guard location < storage.length else { return fallback }
+        return (storage.attributes(at: location, effectiveRange: nil)[.font] as? NSFont) ?? fallback
+    }
+
+    private static func traitFont(_ base: NSFont, traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
+        let merged = base.fontDescriptor.symbolicTraits.union(traits)
+        let descriptor = base.fontDescriptor.withSymbolicTraits(merged)
+        return NSFont(descriptor: descriptor, size: base.pointSize) ?? base
     }
 
     /// Walks the storage and applies `palette.divider` to runs of 3+
@@ -226,14 +268,15 @@ struct MinimalTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
 
-            // Live-restyle headings: reset font to base across the storage,
-            // then re-apply the bold/scaled font to heading lines. Cheap
-            // enough at scratchpad sizes; keeps headings styled while typing.
+            // Live-restyle: reset font to base across the storage, then
+            // re-apply heading + bold/italic styling. Cheap enough at
+            // scratchpad sizes; keeps everything styled while typing.
             if let storage = textView.textStorage {
                 let baseFont = MinimalTextEditor.makeFont(size: lastFontSize.pointSize)
                 let total = NSRange(location: 0, length: storage.length)
                 storage.addAttribute(.font, value: baseFont, range: total)
                 MinimalTextEditor.styleHeadings(in: storage, baseFont: baseFont)
+                MinimalTextEditor.styleBoldItalic(in: storage, baseFont: baseFont)
             }
         }
 
