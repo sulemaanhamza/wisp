@@ -14,10 +14,11 @@ Not a notes app. Not a todo app. Just a place for the thing you need to write do
 
 ```sh
 brew tap sulemaanhamza/wisp
-brew install --cask --no-quarantine wisp
+brew install --cask wisp
+xattr -d com.apple.quarantine /Applications/Wisp.app
 ```
 
-The `--no-quarantine` flag is needed because Wisp isn't signed with an Apple Developer ID — without it, Gatekeeper will refuse to launch the app. Future updates: `brew upgrade --cask wisp` (no flag needed for upgrades, since the existing app's quarantine state is already cleared).
+The `xattr` line is needed because Wisp isn't signed with an Apple Developer ID — Homebrew applies the quarantine attribute by default, which makes Gatekeeper refuse to launch the app. The command strips that attribute. After that, the app launches normally and future updates (`brew upgrade --cask wisp`) work without the extra step.
 
 ### Manual
 
