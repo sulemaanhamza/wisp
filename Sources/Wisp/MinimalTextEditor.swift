@@ -178,6 +178,47 @@ struct MinimalTextEditor: NSViewRepresentable {
             return false
         }
 
+        /// Intercept typed text. Used to convert `---` to a horizontal rule
+        /// the moment the third hyphen is typed — no need for Enter.
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            // Only single-char `-` insertions count. Pastes (multi-char) and
+            // undo restorations have different replacement strings, so they
+            // skip this path naturally.
+            guard replacementString == "-",
+                  affectedCharRange.length == 0
+            else { return true }
+
+            let s = textView.string as NSString
+            let insertAt = affectedCharRange.location
+            let lineRange = s.lineRange(for: NSRange(location: insertAt, length: 0))
+
+            let beforeCursor = s.substring(with: NSRange(
+                location: lineRange.location,
+                length: insertAt - lineRange.location
+            ))
+            var lineEnd = lineRange.location + lineRange.length
+            if lineEnd > lineRange.location, s.character(at: lineEnd - 1) == 0x0A {
+                lineEnd -= 1
+            }
+            let afterCursor = s.substring(with: NSRange(
+                location: insertAt,
+                length: lineEnd - insertAt
+            ))
+
+            // Trigger only when the line up to the cursor is exactly "--" and
+            // the rest of the line is empty — i.e., user is finishing "---"
+            // at the end of a fresh line, not editing inside content.
+            guard beforeCursor == "--", afterCursor.isEmpty else { return true }
+
+            let twoDashRange = NSRange(location: lineRange.location, length: 2)
+            replaceWithHorizontalRule(in: textView, range: twoDashRange)
+            return false  // suppress the typed "-"
+        }
+
         private func handleEnter(in textView: NSTextView) -> Bool {
             let s = textView.string as NSString
             let cursor = textView.selectedRange().location
@@ -191,21 +232,14 @@ struct MinimalTextEditor: NSViewRepresentable {
                 length: lineEnd - lineRange.location
             ))
 
+            // Fallback path: catches `---` that arrived via paste, where the
+            // typed-character interceptor above wouldn't fire.
             if SmartEditing.isHorizontalRuleTrigger(line) {
                 let replaceRange = NSRange(
                     location: lineRange.location,
                     length: lineEnd - lineRange.location
                 )
-                replace(in: textView, range: replaceRange, with: SmartEditing.horizontalRule + "\n")
-                // Dim the just-inserted HR so it reads as a hint immediately,
-                // not only after the next theme/font flip triggers applyPalette.
-                let hrLength = (SmartEditing.horizontalRule as NSString).length
-                let hrRange = NSRange(location: replaceRange.location, length: hrLength)
-                textView.textStorage?.addAttribute(
-                    .foregroundColor,
-                    value: Palette.for(lastTheme).divider,
-                    range: hrRange
-                )
+                replaceWithHorizontalRule(in: textView, range: replaceRange)
                 return true
             }
 
@@ -224,6 +258,21 @@ struct MinimalTextEditor: NSViewRepresentable {
                 replace(in: textView, range: NSRange(location: cursor, length: 0), with: insert)
             }
             return true
+        }
+
+        /// Replace `range` with the horizontal-rule glyph string + newline,
+        /// move the cursor past it, and apply the dim divider color so the
+        /// glyph reads as a hint immediately.
+        private func replaceWithHorizontalRule(in textView: NSTextView, range: NSRange) {
+            let replacement = SmartEditing.horizontalRule + "\n"
+            replace(in: textView, range: range, with: replacement)
+            let hrLength = (SmartEditing.horizontalRule as NSString).length
+            let hrRange = NSRange(location: range.location, length: hrLength)
+            textView.textStorage?.addAttribute(
+                .foregroundColor,
+                value: Palette.for(lastTheme).divider,
+                range: hrRange
+            )
         }
 
         private func replace(in textView: NSTextView, range: NSRange, with replacement: String) {
