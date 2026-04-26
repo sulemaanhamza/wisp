@@ -13,6 +13,7 @@ final class PanelController {
     private let tint: NSView
     private let inner: NSView
     private let outer: NSView
+    private let borderShape: CAShapeLayer
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -68,6 +69,7 @@ final class PanelController {
         inner.layer?.masksToBounds = true
         inner.translatesAutoresizingMaskIntoConstraints = false
         let maskLayer = CAShapeLayer()
+        maskLayer.frame = CGRect(origin: .zero, size: panelSize)
         maskLayer.path = CGPath(
             roundedRect: CGRect(origin: .zero, size: panelSize),
             cornerWidth: cornerRadius,
@@ -75,6 +77,33 @@ final class PanelController {
             transform: nil
         )
         inner.layer?.mask = maskLayer
+
+        // Border drawn as a CAShapeLayer sublayer rather than via
+        // inner.layer.borderWidth/borderColor. The CALayer border draws at
+        // the layer's rectangular bounds; on first render it leaks at the
+        // corners before the rounded mask catches up, producing a hard
+        // dark L-shape that only goes away after a re-render. A path-based
+        // stroke skips the rectangular phase entirely.
+        //
+        // Path is inset by 0.5pt so the entire 1pt stroke (centered on the
+        // path) sits inside the mask — otherwise the outer half would be
+        // clipped, halving the visible thickness.
+        borderShape = CAShapeLayer()
+        borderShape.frame = CGRect(origin: .zero, size: panelSize)
+        borderShape.path = CGPath(
+            roundedRect: CGRect(
+                x: 0.5,
+                y: 0.5,
+                width: panelSize.width - 1,
+                height: panelSize.height - 1
+            ),
+            cornerWidth: cornerRadius - 0.5,
+            cornerHeight: cornerRadius - 0.5,
+            transform: nil
+        )
+        borderShape.fillColor = NSColor.clear.cgColor
+        borderShape.strokeColor = NSColor.clear.cgColor
+        borderShape.lineWidth = 0
 
         visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
@@ -91,6 +120,8 @@ final class PanelController {
         inner.addSubview(visualEffect)
         inner.addSubview(tint)
         inner.addSubview(host)
+        // Border layer goes on top so the stroke sits above content.
+        inner.layer?.addSublayer(borderShape)
         outer.addSubview(inner)
 
         NSLayoutConstraint.activate([
@@ -151,7 +182,7 @@ final class PanelController {
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
-        inner.layer?.borderColor = chrome.borderColor?.cgColor
-        inner.layer?.borderWidth = chrome.borderWidth
+        borderShape.strokeColor = chrome.borderColor?.cgColor ?? NSColor.clear.cgColor
+        borderShape.lineWidth = chrome.borderWidth
     }
 }
