@@ -36,20 +36,14 @@ final class PanelController {
         // layer's own rendering area so the shadow casts from a rounded
         // shape rather than the rectangular bounds. masksToBounds stays
         // false so the shadow can still extend outside the rounded shape.
+        // DIAGNOSTIC v0.1.19: outer drop shadow disabled. If the corner
+        // bleed disappears with this, the shadow is the cause and we
+        // rebuild it via a different mechanism in the next release.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
         outer.layer?.cornerRadius = cornerRadius
         outer.layer?.masksToBounds = false
-        outer.layer?.shadowColor = NSColor.black.cgColor
-        outer.layer?.shadowOpacity = 0.20
-        outer.layer?.shadowOffset = CGSize(width: 0, height: -6)
-        outer.layer?.shadowRadius = 18
-        outer.layer?.shadowPath = CGPath(
-            roundedRect: CGRect(origin: .zero, size: panelSize),
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        )
+        outer.layer?.shadowOpacity = 0
 
         // Inner container: holds the rounded clip. Both cornerRadius+
         // masksToBounds AND a CAShapeLayer mask for redundancy. Border
@@ -140,16 +134,14 @@ final class PanelController {
             model.requestFocus()
             model.refreshPlaceholder()
 
-            // Force a re-render of the visual effect blur. Toggling
-            // .state .inactive→.active is the same code path that runs
-            // when material changes via theme toggle — without this on
-            // first show, the blur output sometimes paints with
-            // stale/default rendering at the corners.
+            // Force a re-render of the visual effect blur and invalidate
+            // any system shadow.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.visualEffect.state = .inactive
                 self.visualEffect.state = .active
                 self.visualEffect.needsDisplay = true
+                self.panel.invalidateShadow()
             }
         }
     }
