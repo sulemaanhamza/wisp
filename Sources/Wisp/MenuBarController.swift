@@ -11,7 +11,9 @@ final class MenuBarController: NSObject {
         super.init()
 
         if let button = statusItem.button {
-            let image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Wisp")
+            // SF Symbol `wind` reads as "wisp" — a single curved stroke,
+            // simpler and more on-brand than the default pencil glyph.
+            let image = NSImage(systemSymbolName: "wind", accessibilityDescription: "Wisp")
             image?.isTemplate = true
             button.image = image
             button.target = self
