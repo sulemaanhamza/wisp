@@ -18,24 +18,15 @@ final class PanelController {
         self.model = model
         self.updater = updater
         let contentRect = NSRect(origin: .zero, size: panelSize)
-        // DIAGNOSTIC v0.1.22: drop .resizable from styleMask. For
-        // borderless panels it can trigger AppKit frame rendering
-        // around the window — possible source of the persistent
-        // corner-bleed.
         panel = FloatingPanel(
             contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
         panel.level = .floating
         panel.isOpaque = false
-        // DIAGNOSTIC v0.1.22: paint the panel's own bg systemPink. If
-        // you see pink in the corner where the dark L was, panel bg is
-        // leaking despite isOpaque=false. If corners are clean (no
-        // pink, no dark) — .resizable removal was the fix. If dark
-        // persists with no pink — we still haven't found the source.
-        panel.backgroundColor = NSColor.systemPink
+        // panel.backgroundColor is set per-theme in applyTheme.
         panel.hasShadow = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -167,18 +158,16 @@ final class PanelController {
     private func applyTheme(_ theme: Theme) {
         let chrome = Chrome.for(theme)
         panel.appearance = NSAppearance(named: chrome.appearance)
+        // Set the panel's own bg to match the content surface so the
+        // corner gap (between rectangular window bounds and rounded
+        // content) blends invisibly. NSColor.clear doesn't produce a
+        // truly transparent panel — the diagnostic in v0.1.22 confirmed
+        // panel bg renders in the corners regardless of alpha.
+        panel.backgroundColor = chrome.panelBackground
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
-        // Hide the blur entirely on light theme — the white tint covers
-        // it 100% anyway, and on first show the blur compositing renders
-        // with stale dark appearance at the corners until a theme toggle
-        // forces a re-composite. With it hidden, there's nothing to leak.
         visualEffect.isHidden = (theme == .light)
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
-        // Border is rendered by SwiftUI in EditorView (via .overlay with a
-        // RoundedRectangle.strokeBorder). CALayer border drew at the
-        // rectangular layer bounds and leaked at the corners on first
-        // render, until a theme toggle re-applied it with the mask
-        // already settled. SwiftUI shapes don't have a rectangular phase.
+        // Border is rendered by SwiftUI in EditorView via .overlay.
     }
 }
