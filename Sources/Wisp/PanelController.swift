@@ -13,7 +13,6 @@ final class PanelController {
     private let tint: NSView
     private let inner: NSView
     private let outer: NSView
-    private let borderShape: CAShapeLayer
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -28,10 +27,6 @@ final class PanelController {
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        // System shadow renders against the rectangular window bounds, which
-        // leaves a visible gap at the rounded corners. We draw our own
-        // shadow on the outer container with a shadowPath that matches the
-        // rounded shape exactly.
         panel.hasShadow = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -39,11 +34,8 @@ final class PanelController {
 
         // Outer container: holds the drop shadow. cornerRadius rounds the
         // layer's own rendering area so the shadow casts from a rounded
-        // shape rather than the rectangular bounds (without this, the
-        // shadow leaked into the corner gap between the rounded inner
-        // mask and the rectangular outer bounds, showing as a soft dark
-        // L). masksToBounds stays false so the shadow can still extend
-        // outside the rounded shape.
+        // shape rather than the rectangular bounds. masksToBounds stays
+        // false so the shadow can still extend outside the rounded shape.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
         outer.layer?.cornerRadius = cornerRadius
@@ -59,16 +51,11 @@ final class PanelController {
             transform: nil
         )
 
-        // Inner container: holds the rounded clip. Everything visible
-        // (blur, tint, editor) lives inside and gets clipped to the
-        // rounded shape. Border is set per-theme in applyTheme.
-        //
-        // Clipping uses an explicit CAShapeLayer mask rather than
-        // cornerRadius+masksToBounds. The implicit mask was unreliable
-        // for sublayers on first render (clipping to the rectangular
-        // bounds instead of the rounded shape) — that produced the
-        // first-launch corner bleed. cornerRadius stays so the light
-        // theme's border still rounds correctly.
+        // Inner container: holds the rounded clip. Both cornerRadius+
+        // masksToBounds AND a CAShapeLayer mask for redundancy. Border
+        // back to inner.layer.borderColor/borderWidth (the shape-layer
+        // border experiment didn't fix the corner bleed and the user
+        // wants the visible border restored).
         inner = NSView()
         inner.wantsLayer = true
         inner.layer?.cornerRadius = cornerRadius
@@ -84,40 +71,24 @@ final class PanelController {
         )
         inner.layer?.mask = maskLayer
 
-        // Border drawn as a CAShapeLayer sublayer rather than via
-        // inner.layer.borderWidth/borderColor. The CALayer border draws at
-        // the layer's rectangular bounds; on first render it leaks at the
-        // corners before the rounded mask catches up, producing a hard
-        // dark L-shape that only goes away after a re-render. A path-based
-        // stroke skips the rectangular phase entirely.
-        //
-        // Path is inset by 0.5pt so the entire 1pt stroke (centered on the
-        // path) sits inside the mask — otherwise the outer half would be
-        // clipped, halving the visible thickness.
-        borderShape = CAShapeLayer()
-        borderShape.frame = CGRect(origin: .zero, size: panelSize)
-        borderShape.path = CGPath(
-            roundedRect: CGRect(
-                x: 0.5,
-                y: 0.5,
-                width: panelSize.width - 1,
-                height: panelSize.height - 1
-            ),
-            cornerWidth: cornerRadius - 0.5,
-            cornerHeight: cornerRadius - 0.5,
-            transform: nil
-        )
-        borderShape.fillColor = NSColor.clear.cgColor
-        borderShape.strokeColor = NSColor.clear.cgColor
-        borderShape.lineWidth = 0
-
+        // Visual effect view: clip its own layer to the rounded shape so
+        // the blur output is rounded independent of inner's mask. Some
+        // first-render cases the inner mask isn't applied to the
+        // visualEffect's blur compositing; clipping at the visualEffect
+        // layer itself makes sure dark blur material can't bleed through
+        // the corner gap.
         visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = cornerRadius
+        visualEffect.layer?.masksToBounds = true
         visualEffect.translatesAutoresizingMaskIntoConstraints = false
 
         tint = NSView()
         tint.wantsLayer = true
+        tint.layer?.cornerRadius = cornerRadius
+        tint.layer?.masksToBounds = true
         tint.translatesAutoresizingMaskIntoConstraints = false
 
         let host = NSHostingView(rootView: EditorView(model: model, updater: updater))
@@ -126,8 +97,6 @@ final class PanelController {
         inner.addSubview(visualEffect)
         inner.addSubview(tint)
         inner.addSubview(host)
-        // Border layer goes on top so the stroke sits above content.
-        inner.layer?.addSublayer(borderShape)
         outer.addSubview(inner)
 
         NSLayoutConstraint.activate([
@@ -171,12 +140,15 @@ final class PanelController {
             model.requestFocus()
             model.refreshPlaceholder()
 
-            // Belt-and-suspenders: defer a redraw to the next runloop in
-            // case the visualEffect material needs another tick to commit.
-            // The CAShapeLayer mask should handle clipping reliably, but
-            // this catches any other paint-cycle quirks for free.
+            // Force a re-render of the visual effect blur. Toggling
+            // .state .inactive→.active is the same code path that runs
+            // when material changes via theme toggle — without this on
+            // first show, the blur output sometimes paints with
+            // stale/default rendering at the corners.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                self.visualEffect.state = .inactive
+                self.visualEffect.state = .active
                 self.visualEffect.needsDisplay = true
             }
         }
@@ -188,7 +160,7 @@ final class PanelController {
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
-        borderShape.strokeColor = chrome.borderColor?.cgColor ?? NSColor.clear.cgColor
-        borderShape.lineWidth = chrome.borderWidth
+        inner.layer?.borderColor = chrome.borderColor?.cgColor
+        inner.layer?.borderWidth = chrome.borderWidth
     }
 }
