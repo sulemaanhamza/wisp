@@ -44,12 +44,6 @@ struct Palette {
 struct Chrome {
     let material: NSVisualEffectView.Material
     let tintColor: NSColor
-    /// Color used for `panel.backgroundColor`. NSColor.clear doesn't produce
-    /// a truly transparent panel bg — some default rendering happens at the
-    /// corner gap (between rectangular window and rounded content). Using a
-    /// solid color matching the rounded content surface makes the gap
-    /// blend invisibly.
-    let panelBackground: NSColor
     let appearance: NSAppearance.Name
     let borderColor: NSColor?
     let borderWidth: CGFloat
@@ -60,7 +54,6 @@ struct Chrome {
             return Chrome(
                 material: .fullScreenUI,
                 tintColor: NSColor(white: 0.0, alpha: 0.50),
-                panelBackground: NSColor(white: 0.10, alpha: 1.0),
                 appearance: .darkAqua,
                 borderColor: nil,
                 borderWidth: 0
@@ -69,7 +62,6 @@ struct Chrome {
             return Chrome(
                 material: .windowBackground,
                 tintColor: NSColor.white,
-                panelBackground: NSColor.white,
                 appearance: .aqua,
                 borderColor: NSColor(white: 0.0, alpha: 0.12),
                 borderWidth: 1

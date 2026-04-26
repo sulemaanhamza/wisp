@@ -26,7 +26,7 @@ final class PanelController {
         )
         panel.level = .floating
         panel.isOpaque = false
-        // panel.backgroundColor is set per-theme in applyTheme.
+        panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -158,12 +158,6 @@ final class PanelController {
     private func applyTheme(_ theme: Theme) {
         let chrome = Chrome.for(theme)
         panel.appearance = NSAppearance(named: chrome.appearance)
-        // Set the panel's own bg to match the content surface so the
-        // corner gap (between rectangular window bounds and rounded
-        // content) blends invisibly. NSColor.clear doesn't produce a
-        // truly transparent panel — the diagnostic in v0.1.22 confirmed
-        // panel bg renders in the corners regardless of alpha.
-        panel.backgroundColor = chrome.panelBackground
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
         visualEffect.isHidden = (theme == .light)
