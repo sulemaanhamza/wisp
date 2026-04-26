@@ -174,6 +174,23 @@ struct EditorView: View {
                 onUpdateClick: { updater.handleClick() }
             )
         }
+        // Border drawn here in SwiftUI rather than via CALayer
+        // borderColor/borderWidth on the panel chrome — CALayer border
+        // draws at rectangular bounds and leaked at the rounded corners
+        // on first render. SwiftUI's strokeBorder draws inside the shape,
+        // doesn't have a rectangular phase, and clips correctly.
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(borderColor, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var borderColor: Color {
+        switch model.theme {
+        case .light: return Color.black.opacity(0.12)
+        case .dark: return Color.clear
+        }
     }
 
     private var wordCount: Int {

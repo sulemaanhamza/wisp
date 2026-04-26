@@ -166,7 +166,10 @@ final class PanelController {
         // forces a re-composite. With it hidden, there's nothing to leak.
         visualEffect.isHidden = (theme == .light)
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
-        inner.layer?.borderColor = chrome.borderColor?.cgColor
-        inner.layer?.borderWidth = chrome.borderWidth
+        // Border is rendered by SwiftUI in EditorView (via .overlay with a
+        // RoundedRectangle.strokeBorder). CALayer border drew at the
+        // rectangular layer bounds and leaked at the corners on first
+        // render, until a theme toggle re-applied it with the mask
+        // already settled. SwiftUI shapes don't have a rectangular phase.
     }
 }
