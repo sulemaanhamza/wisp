@@ -38,12 +38,13 @@ final class PanelController {
 
         // Outer container: holds the drop shadow. No clipping (shadow is
         // drawn outside the layer bounds, so masksToBounds must stay false).
+        // Shadow is intentionally subtle — a soft lift, not a heavy frame.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
         outer.layer?.shadowColor = NSColor.black.cgColor
-        outer.layer?.shadowOpacity = 0.45
-        outer.layer?.shadowOffset = CGSize(width: 0, height: -10)
-        outer.layer?.shadowRadius = 28
+        outer.layer?.shadowOpacity = 0.20
+        outer.layer?.shadowOffset = CGSize(width: 0, height: -6)
+        outer.layer?.shadowRadius = 18
         outer.layer?.shadowPath = CGPath(
             roundedRect: CGRect(origin: .zero, size: panelSize),
             cornerWidth: cornerRadius,
@@ -64,6 +65,7 @@ final class PanelController {
         inner = NSView()
         inner.wantsLayer = true
         inner.layer?.cornerRadius = cornerRadius
+        inner.layer?.masksToBounds = true
         inner.translatesAutoresizingMaskIntoConstraints = false
         let maskLayer = CAShapeLayer()
         maskLayer.path = CGPath(
