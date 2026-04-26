@@ -37,11 +37,17 @@ final class PanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
 
-        // Outer container: holds the drop shadow. No clipping (shadow is
-        // drawn outside the layer bounds, so masksToBounds must stay false).
-        // Shadow is intentionally subtle — a soft lift, not a heavy frame.
+        // Outer container: holds the drop shadow. cornerRadius rounds the
+        // layer's own rendering area so the shadow casts from a rounded
+        // shape rather than the rectangular bounds (without this, the
+        // shadow leaked into the corner gap between the rounded inner
+        // mask and the rectangular outer bounds, showing as a soft dark
+        // L). masksToBounds stays false so the shadow can still extend
+        // outside the rounded shape.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
+        outer.layer?.cornerRadius = cornerRadius
+        outer.layer?.masksToBounds = false
         outer.layer?.shadowColor = NSColor.black.cgColor
         outer.layer?.shadowOpacity = 0.20
         outer.layer?.shadowOffset = CGSize(width: 0, height: -6)
