@@ -9,6 +9,8 @@ final class PanelController {
     private let panel: FloatingPanel
     private let model: EditorModel
     private let updater: Updater
+    private let visualEffect: NSVisualEffectView
+    private let tint: NSView
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -31,7 +33,6 @@ final class PanelController {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
-        panel.appearance = NSAppearance(named: .darkAqua)
 
         // Outer container: holds the drop shadow. No clipping (shadow is
         // drawn outside the layer bounds, so masksToBounds must stay false).
@@ -57,18 +58,13 @@ final class PanelController {
         inner.layer?.masksToBounds = true
         inner.translatesAutoresizingMaskIntoConstraints = false
 
-        let visualEffect = NSVisualEffectView()
-        visualEffect.material = .fullScreenUI
+        visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.translatesAutoresizingMaskIntoConstraints = false
 
-        // Dark tint above the blur, below the content. 50% alpha guarantees
-        // readable contrast on any background — glass still reads as glass
-        // because the blur is still doing its job underneath.
-        let tint = NSView()
+        tint = NSView()
         tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.50).cgColor
         tint.translatesAutoresizingMaskIntoConstraints = false
 
         let host = NSHostingView(rootView: EditorView(model: model, updater: updater))
@@ -103,6 +99,11 @@ final class PanelController {
 
         panel.contentView = outer
         panel.center()
+
+        applyTheme(model.theme)
+        model.onThemeChange = { [weak self] theme in
+            self?.applyTheme(theme)
+        }
     }
 
     func toggle() {
@@ -113,5 +114,13 @@ final class PanelController {
             panel.makeKeyAndOrderFront(nil)
             model.requestFocus()
         }
+    }
+
+    private func applyTheme(_ theme: Theme) {
+        let chrome = Chrome.for(theme)
+        panel.appearance = NSAppearance(named: chrome.appearance)
+        visualEffect.material = chrome.material
+        visualEffect.appearance = NSAppearance(named: chrome.appearance)
+        tint.layer?.backgroundColor = chrome.tintColor.cgColor
     }
 }

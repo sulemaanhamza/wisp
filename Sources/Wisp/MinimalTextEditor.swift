@@ -1,18 +1,11 @@
 import SwiftUI
 import AppKit
 
-private enum Palette {
-    // Warm off-white on dark tinted glass. Less yellow than cream so it doesn't
-    // wash out when the glass picks up bright background light.
-    static let text = NSColor(red: 0.95, green: 0.93, blue: 0.89, alpha: 1.0)       // warm white
-    static let cursor = NSColor(red: 0.98, green: 0.97, blue: 0.93, alpha: 1.0)     // brighter warm white
-    static let selection = NSColor(white: 1.0, alpha: 0.18)                          // neutral white tint
-}
-
 struct MinimalTextEditor: NSViewRepresentable {
     @Binding var text: String
     var focusToken: Int
     var fontSize: FontSize
+    var theme: Theme
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -32,17 +25,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.font = font
-        textView.textColor = Palette.text
-        textView.insertionPointColor = Palette.cursor
-        textView.selectedTextAttributes = [
-            .backgroundColor: Palette.selection
-        ]
         textView.defaultParagraphStyle = paragraph
-        textView.typingAttributes = [
-            .font: font,
-            .foregroundColor: Palette.text,
-            .paragraphStyle: paragraph,
-        ]
         textView.allowsUndo = true
         textView.isRichText = false
         textView.importsGraphics = false
@@ -54,7 +37,10 @@ struct MinimalTextEditor: NSViewRepresentable {
         textView.textContainer?.lineFragmentPadding = 0
         textView.string = text
 
+        Self.applyPalette(Palette.for(theme), to: textView, font: font, paragraph: paragraph)
+
         context.coordinator.lastFontSize = fontSize
+        context.coordinator.lastTheme = theme
         return scrollView
     }
 
@@ -66,6 +52,13 @@ struct MinimalTextEditor: NSViewRepresentable {
         if context.coordinator.lastFontSize != fontSize {
             context.coordinator.lastFontSize = fontSize
             applyFont(to: textView)
+        }
+        if context.coordinator.lastTheme != theme {
+            context.coordinator.lastTheme = theme
+            let font = Self.makeFont(size: CGFloat(fontSize.rawValue))
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineHeightMultiple = 1.45
+            Self.applyPalette(Palette.for(theme), to: textView, font: font, paragraph: paragraph)
         }
         if context.coordinator.lastFocusToken != focusToken {
             context.coordinator.lastFocusToken = focusToken
@@ -87,11 +80,29 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
     }
 
+    private static func applyPalette(
+        _ palette: Palette,
+        to textView: NSTextView,
+        font: NSFont,
+        paragraph: NSParagraphStyle
+    ) {
+        textView.textColor = palette.text
+        textView.insertionPointColor = palette.cursor
+        textView.selectedTextAttributes = [
+            .backgroundColor: palette.selection
+        ]
+        textView.typingAttributes = [
+            .font: font,
+            .foregroundColor: palette.text,
+            .paragraphStyle: paragraph,
+        ]
+        if let storage = textView.textStorage {
+            let range = NSRange(location: 0, length: storage.length)
+            storage.addAttributes([.foregroundColor: palette.text], range: range)
+        }
+    }
+
     private static func makeFont(size: CGFloat) -> NSFont {
-        // Charter is preinstalled on macOS and designed for on-screen body
-        // reading — wider apertures than New York. Iowan Old Style is the
-        // next-best preinstalled warm serif. New York / system serif close out
-        // the chain so we always land on something.
         for name in ["Charter", "Iowan Old Style", "New York"] {
             if let font = NSFont(name: name, size: size) {
                 return font
@@ -111,6 +122,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         var text: Binding<String>
         var lastFocusToken: Int = 0
         var lastFontSize: FontSize = .medium
+        var lastTheme: Theme = .dark
 
         init(text: Binding<String>) {
             self.text = text
@@ -155,14 +167,12 @@ struct MinimalTextEditor: NSViewRepresentable {
             }
 
             if marker.isEmpty {
-                // Empty list item: strip the marker, drop a blank line, exit list.
                 let stripRange = NSRange(
                     location: lineRange.location,
                     length: cursor - lineRange.location
                 )
                 replace(in: textView, range: stripRange, with: "\n")
             } else {
-                // Continue the list with the next marker.
                 let insert = "\n" + marker
                 replace(in: textView, range: NSRange(location: cursor, length: 0), with: insert)
             }

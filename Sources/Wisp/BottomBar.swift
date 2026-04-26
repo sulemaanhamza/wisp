@@ -4,6 +4,8 @@ struct BottomBar: View {
     let wordCount: Int
     let fontSize: FontSize
     let onCycleFontSize: () -> Void
+    let theme: Theme
+    let onToggleTheme: () -> Void
     let updateState: UpdateState
     let onUpdateClick: () -> Void
 
@@ -13,6 +15,13 @@ struct BottomBar: View {
                 .monospacedDigit()
             Spacer()
             updateIndicator
+            Button(action: onToggleTheme) {
+                Image(systemName: theme == .dark ? "sun.max" : "moon")
+                    .font(.system(size: 11, weight: .regular))
+                    .frame(width: 14, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .help("Switch to \(theme == .dark ? "light" : "dark") theme")
             Button(action: onCycleFontSize) {
                 Text("Aa")
                     .font(.system(size: indicatorSize, weight: .medium, design: .serif))

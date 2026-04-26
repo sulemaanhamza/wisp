@@ -22,11 +22,26 @@ final class EditorModel: ObservableObject {
     }
     @Published var focusToken: Int = 0
     @Published var fontSize: FontSize = .medium
+    @Published var theme: Theme = .dark {
+        didSet {
+            UserDefaults.standard.set(theme.rawValue, forKey: "Theme")
+            onThemeChange?(theme)
+        }
+    }
+
+    /// PanelController subscribes to this so it can apply chrome changes
+    /// (visualEffect material, tint color, panel appearance) when the
+    /// theme flips. SwiftUI handles its own re-render via @Published.
+    var onThemeChange: (@MainActor (Theme) -> Void)?
 
     private var didLoad = false
     private var saveTask: Task<Void, Never>?
 
     init() {
+        if let saved = UserDefaults.standard.string(forKey: "Theme"),
+           let t = Theme(rawValue: saved) {
+            theme = t
+        }
         if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
             text = loaded
         }
@@ -39,6 +54,11 @@ final class EditorModel: ObservableObject {
 
     func cycleFontSize() {
         fontSize = fontSize.next
+        requestFocus()
+    }
+
+    func toggleTheme() {
+        theme = theme.toggled
         requestFocus()
     }
 
@@ -83,7 +103,8 @@ struct EditorView: View {
             MinimalTextEditor(
                 text: $model.text,
                 focusToken: model.focusToken,
-                fontSize: model.fontSize
+                fontSize: model.fontSize,
+                theme: model.theme
             )
             .padding(.horizontal, 28)
             .padding(.top, 28)
@@ -92,6 +113,8 @@ struct EditorView: View {
                 wordCount: wordCount,
                 fontSize: model.fontSize,
                 onCycleFontSize: { model.cycleFontSize() },
+                theme: model.theme,
+                onToggleTheme: { model.toggleTheme() },
                 updateState: updater.state,
                 onUpdateClick: { updater.handleClick() }
             )

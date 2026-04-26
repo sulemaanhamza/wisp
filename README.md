@@ -44,6 +44,15 @@ You can also click the pencil icon in the menu bar to open it, or **right-click*
 
 Your text is saved to `~/Library/Application Support/Wisp/scratchpad.md` — plain markdown, debounced 800ms after the last keystroke, and flushed on quit. Open it in any editor, back it up, or grep it. Nothing is locked in a proprietary database.
 
+### Themes
+
+Two surfaces, switchable from the small sun/moon button in the footer:
+
+- **Dark glass** (default) — frosted translucent panel with warm off-white text. The "summon overlay" feel.
+- **White slate** — opaque white card with near-black ink. The "clean page" feel.
+
+Your choice is remembered across launches.
+
 ### Auto-update
 
 On launch, Wisp quietly checks GitHub Releases. If a newer version exists, a small `↑ vX.Y.Z` appears next to the dismiss hint at the bottom. Click it once — the update downloads in the background, and the indicator switches to `↻ vX.Y.Z ready — restart to apply`. Quit and reopen Wisp (or click the indicator a second time) and the new version takes over. The download lives at `~/Library/Application Support/Wisp/Updates/`.
