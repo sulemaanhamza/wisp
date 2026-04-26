@@ -12,6 +12,7 @@ final class PanelController {
     private let visualEffect: NSVisualEffectView
     private let tint: NSView
     private let inner: NSView
+    private let outer: NSView
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -37,7 +38,7 @@ final class PanelController {
 
         // Outer container: holds the drop shadow. No clipping (shadow is
         // drawn outside the layer bounds, so masksToBounds must stay false).
-        let outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
+        outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
         outer.wantsLayer = true
         outer.layer?.shadowColor = NSColor.black.cgColor
         outer.layer?.shadowOpacity = 0.45
@@ -113,15 +114,28 @@ final class PanelController {
         } else {
             panel.center()
             panel.makeKeyAndOrderFront(nil)
-            // Re-apply theme after the panel is realized. The init-time
-            // applyTheme runs before the views are in a window, so the
-            // NSVisualEffectView material doesn't fully commit — most
-            // visibly on the light theme's first show, where the rounded
-            // corners bled darker pixels. Re-applying here is exactly
-            // what the user's "toggle theme" workaround does, just done
-            // automatically.
             applyTheme(model.theme)
             model.requestFocus()
+
+            // Cold launches (especially via `open` after an auto-update
+            // relaunch) sometimes leave the visualEffect material and the
+            // outer drop-shadow path partially committed even after the
+            // immediate post-orderFront pass. Defer one more pass to the
+            // next runloop tick, re-asserting both the theme and the
+            // shadow path, then force a redraw.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.applyTheme(self.model.theme)
+                self.outer.layer?.shadowPath = CGPath(
+                    roundedRect: CGRect(origin: .zero, size: panelSize),
+                    cornerWidth: cornerRadius,
+                    cornerHeight: cornerRadius,
+                    transform: nil
+                )
+                self.visualEffect.needsDisplay = true
+                self.inner.needsDisplay = true
+                self.outer.needsDisplay = true
+            }
         }
     }
 
