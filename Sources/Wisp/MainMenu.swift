@@ -54,6 +54,25 @@ enum MainMenuBuilder {
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
+        let formatMenuItem = NSMenuItem()
+        let formatMenu = NSMenu(title: "Format")
+        let boldItem = NSMenuItem(
+            title: "Bold",
+            action: #selector(AppDelegate.toggleBold(_:)),
+            keyEquivalent: "b"
+        )
+        boldItem.target = target
+        formatMenu.addItem(boldItem)
+        let italicItem = NSMenuItem(
+            title: "Italic",
+            action: #selector(AppDelegate.toggleItalic(_:)),
+            keyEquivalent: "i"
+        )
+        italicItem.target = target
+        formatMenu.addItem(italicItem)
+        formatMenuItem.submenu = formatMenu
+        mainMenu.addItem(formatMenuItem)
+
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         let smallItem = NSMenuItem(

@@ -30,6 +30,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func setMediumFont(_ sender: Any?) { model.fontSize = .medium }
     @objc func setLargeFont(_ sender: Any?) { model.fontSize = .large }
 
+    @objc func toggleBold(_ sender: Any?) {
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+        MarkdownWrap.toggle(in: textView, marker: "**")
+    }
+
+    @objc func toggleItalic(_ sender: Any?) {
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+        MarkdownWrap.toggle(in: textView, marker: "*")
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Flush any pending debounced save so quitting never loses the
         // last few keystrokes.
