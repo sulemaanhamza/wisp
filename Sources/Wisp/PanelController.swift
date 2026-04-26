@@ -18,15 +18,24 @@ final class PanelController {
         self.model = model
         self.updater = updater
         let contentRect = NSRect(origin: .zero, size: panelSize)
+        // DIAGNOSTIC v0.1.22: drop .resizable from styleMask. For
+        // borderless panels it can trigger AppKit frame rendering
+        // around the window — possible source of the persistent
+        // corner-bleed.
         panel = FloatingPanel(
             contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel, .resizable],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.level = .floating
         panel.isOpaque = false
-        panel.backgroundColor = .clear
+        // DIAGNOSTIC v0.1.22: paint the panel's own bg systemPink. If
+        // you see pink in the corner where the dark L was, panel bg is
+        // leaking despite isOpaque=false. If corners are clean (no
+        // pink, no dark) — .resizable removal was the fix. If dark
+        // persists with no pink — we still haven't found the source.
+        panel.backgroundColor = NSColor.systemPink
         panel.hasShadow = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
