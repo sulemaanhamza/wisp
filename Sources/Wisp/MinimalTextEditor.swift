@@ -4,6 +4,8 @@ import AppKit
 struct MinimalTextEditor: NSViewRepresentable {
     @Binding var text: String
     var focusToken: Int
+    var scrollToken: Int
+    var scrollTarget: Int
     var fontSize: FontSize
     var theme: Theme
 
@@ -63,6 +65,18 @@ struct MinimalTextEditor: NSViewRepresentable {
         if context.coordinator.lastFocusToken != focusToken {
             context.coordinator.lastFocusToken = focusToken
             DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
+        if context.coordinator.lastScrollToken != scrollToken {
+            context.coordinator.lastScrollToken = scrollToken
+            let target = scrollTarget
+            DispatchQueue.main.async {
+                let length = (textView.string as NSString).length
+                let safe = max(0, min(target, length))
+                let range = NSRange(location: safe, length: 0)
+                textView.scrollRangeToVisible(range)
+                textView.setSelectedRange(range)
                 textView.window?.makeFirstResponder(textView)
             }
         }
@@ -159,6 +173,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var lastFocusToken: Int = 0
+        var lastScrollToken: Int = 0
         var lastFontSize: FontSize = .medium
         var lastTheme: Theme = .dark
 

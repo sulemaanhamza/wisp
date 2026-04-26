@@ -24,11 +24,15 @@ enum FontSize: String, CaseIterable {
 final class EditorModel: ObservableObject {
     @Published var text: String = "" {
         didSet {
+            headings = text.extractHeadings()
             guard didLoad else { return }
             scheduleSave()
         }
     }
+    @Published var headings: [Heading] = []
     @Published var focusToken: Int = 0
+    @Published var scrollToken: Int = 0
+    private(set) var scrollTarget: Int = 0
     @Published var fontSize: FontSize = .medium {
         didSet {
             guard didLoad else { return }
@@ -79,6 +83,11 @@ final class EditorModel: ObservableObject {
         requestFocus()
     }
 
+    func jumpTo(_ heading: Heading) {
+        scrollTarget = heading.lineStart
+        scrollToken &+= 1
+    }
+
     /// Force a synchronous flush — call from applicationWillTerminate so an
     /// in-flight debounced save isn't lost when the user quits.
     func flushSave() {
@@ -117,14 +126,19 @@ struct EditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HeaderBar(headings: model.headings) { heading in
+                model.jumpTo(heading)
+            }
             MinimalTextEditor(
                 text: $model.text,
                 focusToken: model.focusToken,
+                scrollToken: model.scrollToken,
+                scrollTarget: model.scrollTarget,
                 fontSize: model.fontSize,
                 theme: model.theme
             )
             .padding(.horizontal, 28)
-            .padding(.top, 28)
+            .padding(.top, model.headings.isEmpty ? 28 : 4)
             .padding(.bottom, 4)
             BottomBar(
                 wordCount: wordCount,
