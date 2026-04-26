@@ -42,7 +42,17 @@ You can also click the pencil icon in the menu bar to open it, or **right-click*
 ### Smart editing
 
 - **Lists auto-continue.** Start a line with `- `, `* `, `+ `, `1. `, `A. `, or `a. ` and press Enter — the next marker appears on the new line. Pressing Enter on an empty list item exits the list.
-- **Horizontal rule.** Type `---` on its own line and press Enter to get a clean divider.
+- **Horizontal rule.** Type `---` on its own line and the moment you hit the third hyphen, it becomes a dim divider — no Enter required.
+
+### Headings
+
+Lines starting with `# `, `## `, or `### ` (and so on, up to `######`) are recognised as section headings.
+
+- They render **bolder and slightly larger** inline (`#` biggest, `##` smaller, `###+` same size as body but still bold).
+- The top of the panel shows a sticky horizontal list of all your headings, separated by `·`. Click any one to jump to that section.
+- Empty by default — the bar appears only when you have at least one heading, and disappears when you delete them.
+
+It's still plain markdown on disk; the styling and the bar are purely render-time.
 
 ### Persistence
 
@@ -67,9 +77,10 @@ Existing notes apps (Obsidian, Notion, Bear, even Apple Notes) all ask you to th
 
 ## Design principles
 
-- **One click to open, Esc to dismiss.**
+- **One keystroke to open, Esc to dismiss.**
 - **Empty by default.** The window is a blank surface, not a dashboard.
-- **Invisible chrome.** No toolbars, no menus — just a tiny word count and dismiss hint at the bottom.
+- **Chrome only when it earns its place.** A sticky heading bar appears only when you have headings; the update indicator shows up only when there's an update; the footer carries word count, theme toggle, font cycle, and dismiss hint at low contrast.
+- **Plain markdown all the way down.** Lists, headings, dividers — all stored as the characters you typed. No proprietary format, no lock-in.
 - **Minimal resources.** Native Swift / AppKit, sleeps when hidden.
 
 ## Build from source
@@ -91,7 +102,7 @@ swift run
 
 ## Status
 
-Usable for daily writing. Working today: global hotkey, persistence to disk, in-app auto-update, smart list editing, three font sizes. Roadmap from here is mostly polish — customizable hotkey, search across past sessions, optional iCloud sync.
+Usable for daily writing. Working today: global hotkey, persistence to disk, in-app auto-update, smart list editing, instant horizontal rules, dimmed dividers, headings with click-to-jump navigation, light / dark themes, three font sizes. Roadmap from here is mostly polish — customizable hotkey, optional iCloud sync, maybe a Homebrew tap.
 
 ## License
 
