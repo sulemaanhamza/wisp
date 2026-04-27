@@ -35,6 +35,20 @@ final class EditorModel: ObservableObject {
     private(set) var scrollTarget: Int = 0
     @Published private(set) var placeholder: String = ""
     @Published var showHelp: Bool = false
+    @Published var showHotKeyCapture: Bool = false
+    @Published var hotKey: HotKey = .default {
+        didSet {
+            guard didLoad else { return }
+            hotKey.saveToDefaults()
+        }
+    }
+
+    /// AppDelegate replaces this with the real Carbon-registration
+    /// attempt. Returns nil on success or a user-facing error message
+    /// if registration was rejected (typically because the combo is
+    /// already in use system-wide). Default is a no-op so this is
+    /// always callable.
+    var tryUpdateHotKey: @MainActor (HotKey) -> String? = { _ in nil }
 
     private static let placeholders = [
         "What's on your mind?",
@@ -82,6 +96,9 @@ final class EditorModel: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "FontFace"),
            let face = FontFace(rawValue: saved) {
             fontFace = face
+        }
+        if let saved = HotKey.loadFromDefaults() {
+            hotKey = saved
         }
         if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
             text = loaded
@@ -198,6 +215,23 @@ struct EditorView: View {
                         model.showHelp = false
                     }
                 }
+                .transition(.opacity)
+            }
+            if model.showHotKeyCapture {
+                HotKeyCaptureOverlay(
+                    theme: model.theme,
+                    onTryRegister: { hk in model.tryUpdateHotKey(hk) },
+                    onSuccess: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            model.showHotKeyCapture = false
+                        }
+                    },
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            model.showHotKeyCapture = false
+                        }
+                    }
+                )
                 .transition(.opacity)
             }
         }

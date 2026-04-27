@@ -6,15 +6,21 @@ final class MenuBarController: NSObject {
     private let onClick: () -> Void
     private let currentFontFace: () -> FontFace
     private let onSelectFontFace: (FontFace) -> Void
+    private let currentHotKey: () -> HotKey
+    private let onSetHotKey: () -> Void
 
     init(
         onClick: @escaping () -> Void,
         currentFontFace: @escaping () -> FontFace,
-        onSelectFontFace: @escaping (FontFace) -> Void
+        onSelectFontFace: @escaping (FontFace) -> Void,
+        currentHotKey: @escaping () -> HotKey,
+        onSetHotKey: @escaping () -> Void
     ) {
         self.onClick = onClick
         self.currentFontFace = currentFontFace
         self.onSelectFontFace = onSelectFontFace
+        self.currentHotKey = currentHotKey
+        self.onSetHotKey = onSetHotKey
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -51,6 +57,10 @@ final class MenuBarController: NSObject {
         onSelectFontFace(face)
     }
 
+    @objc private func handleSetHotKey() {
+        onSetHotKey()
+    }
+
     private func showContextMenu() {
         let menu = NSMenu()
 
@@ -81,6 +91,14 @@ final class MenuBarController: NSObject {
         }
         fontMenuItem.submenu = fontMenu
         menu.addItem(fontMenuItem)
+
+        let hotKeyItem = NSMenuItem(
+            title: "Set Shortcut…  (\(currentHotKey().displayString))",
+            action: #selector(handleSetHotKey),
+            keyEquivalent: ""
+        )
+        hotKeyItem.target = self
+        menu.addItem(hotKeyItem)
 
         menu.addItem(NSMenuItem.separator())
 

@@ -32,6 +32,10 @@ final class HotKeyMonitor {
     /// shiftKey / optionKey / controlKey from Carbon.
     @discardableResult
     func register(keyCode: UInt32, modifiers: UInt32, handler: @escaping () -> Void) -> Bool {
+        // Drop any existing registration first so re-registering after a
+        // user-driven hotkey change doesn't pile up dead refs.
+        unregister()
+
         Self.installSharedEventHandler()
         Self.handlers[id] = handler
 
@@ -46,6 +50,15 @@ final class HotKeyMonitor {
             &hotKeyRef
         )
         return status == noErr
+    }
+
+    /// Drop the current hotkey registration if any.
+    func unregister() {
+        if let ref = hotKeyRef {
+            UnregisterEventHotKey(ref)
+            hotKeyRef = nil
+        }
+        Self.handlers.removeValue(forKey: id)
     }
 
     private static func installSharedEventHandler() {

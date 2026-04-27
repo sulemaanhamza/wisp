@@ -105,15 +105,25 @@ final class PanelController {
             self?.applyTheme(theme)
         }
 
-        // Esc closes the help overlay first if it's showing; otherwise
-        // falls through to the panel's normal dismiss behavior.
+        // Esc closes any modal overlay first; falls through to the
+        // panel's normal dismiss behavior only when nothing is open.
         panel.onCancel = { [weak self] in
             guard let self else { return false }
+            if self.model.showHotKeyCapture {
+                self.model.showHotKeyCapture = false
+                return true
+            }
             if self.model.showHelp {
                 self.model.showHelp = false
                 return true
             }
             return false
+        }
+    }
+
+    func openIfNeeded() {
+        if !panel.isVisible {
+            toggle()
         }
     }
 
