@@ -104,6 +104,17 @@ final class PanelController {
         model.onThemeChange = { [weak self] theme in
             self?.applyTheme(theme)
         }
+
+        // Esc closes the help overlay first if it's showing; otherwise
+        // falls through to the panel's normal dismiss behavior.
+        panel.onCancel = { [weak self] in
+            guard let self else { return false }
+            if self.model.showHelp {
+                self.model.showHelp = false
+                return true
+            }
+            return false
+        }
     }
 
     func toggle() {

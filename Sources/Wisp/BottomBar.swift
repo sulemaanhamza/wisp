@@ -8,6 +8,7 @@ struct BottomBar: View {
     let onToggleTheme: () -> Void
     let updateState: UpdateState
     let onUpdateClick: () -> Void
+    let onHelpClick: () -> Void
 
     var body: some View {
         HStack(spacing: 16) {
@@ -15,6 +16,14 @@ struct BottomBar: View {
                 .monospacedDigit()
             Spacer()
             updateIndicator
+            Button(action: onHelpClick) {
+                Image(systemName: "questionmark")
+                    .font(.system(size: 11, weight: .regular))
+                    .frame(width: 14, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("Keyboard shortcuts and formatting")
             Button(action: onToggleTheme) {
                 Image(systemName: theme == .dark ? "sun.max" : "moon")
                     .font(.system(size: 11, weight: .regular))

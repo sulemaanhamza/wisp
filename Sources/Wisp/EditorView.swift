@@ -34,6 +34,7 @@ final class EditorModel: ObservableObject {
     @Published var scrollToken: Int = 0
     private(set) var scrollTarget: Int = 0
     @Published private(set) var placeholder: String = ""
+    @Published var showHelp: Bool = false
 
     private static let placeholders = [
         "What's on your mind?",
@@ -139,46 +140,56 @@ struct EditorView: View {
     @ObservedObject var updater: Updater
 
     var body: some View {
-        VStack(spacing: 0) {
-            HeaderBar(headings: model.headings) { heading in
-                model.jumpTo(heading)
-            }
-            ZStack(alignment: .topLeading) {
-                MinimalTextEditor(
-                    text: $model.text,
-                    focusToken: model.focusToken,
-                    scrollToken: model.scrollToken,
-                    scrollTarget: model.scrollTarget,
-                    fontSize: model.fontSize,
-                    theme: model.theme
-                )
-                .padding(.horizontal, 28)
-                .padding(.top, model.headings.isEmpty ? 28 : 4)
-                .padding(.bottom, 4)
-                if model.text.isEmpty {
-                    Text(model.placeholder)
-                        .font(.custom("Charter", size: model.fontSize.pointSize))
-                        .foregroundStyle(.tertiary)
-                        .allowsHitTesting(false)
-                        .padding(.horizontal, 28)
-                        .padding(.top, model.headings.isEmpty ? 28 : 4)
+        ZStack {
+            VStack(spacing: 0) {
+                HeaderBar(headings: model.headings) { heading in
+                    model.jumpTo(heading)
                 }
+                ZStack(alignment: .topLeading) {
+                    MinimalTextEditor(
+                        text: $model.text,
+                        focusToken: model.focusToken,
+                        scrollToken: model.scrollToken,
+                        scrollTarget: model.scrollTarget,
+                        fontSize: model.fontSize,
+                        theme: model.theme
+                    )
+                    .padding(.horizontal, 28)
+                    .padding(.top, model.headings.isEmpty ? 28 : 4)
+                    .padding(.bottom, 4)
+                    if model.text.isEmpty {
+                        Text(model.placeholder)
+                            .font(.custom("Charter", size: model.fontSize.pointSize))
+                            .foregroundStyle(.tertiary)
+                            .allowsHitTesting(false)
+                            .padding(.horizontal, 28)
+                            .padding(.top, model.headings.isEmpty ? 28 : 4)
+                    }
+                }
+                BottomBar(
+                    wordCount: wordCount,
+                    fontSize: model.fontSize,
+                    onCycleFontSize: { model.cycleFontSize() },
+                    theme: model.theme,
+                    onToggleTheme: { model.toggleTheme() },
+                    updateState: updater.state,
+                    onUpdateClick: { updater.handleClick() },
+                    onHelpClick: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            model.showHelp.toggle()
+                        }
+                    }
+                )
             }
-            BottomBar(
-                wordCount: wordCount,
-                fontSize: model.fontSize,
-                onCycleFontSize: { model.cycleFontSize() },
-                theme: model.theme,
-                onToggleTheme: { model.toggleTheme() },
-                updateState: updater.state,
-                onUpdateClick: { updater.handleClick() }
-            )
+            if model.showHelp {
+                HelpOverlay(theme: model.theme) {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        model.showHelp = false
+                    }
+                }
+                .transition(.opacity)
+            }
         }
-        // Border drawn here in SwiftUI rather than via CALayer
-        // borderColor/borderWidth on the panel chrome — CALayer border
-        // draws at rectangular bounds and leaked at the rounded corners
-        // on first render. SwiftUI's strokeBorder draws inside the shape,
-        // doesn't have a rectangular phase, and clips correctly.
         .overlay {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(borderColor, lineWidth: 1)
