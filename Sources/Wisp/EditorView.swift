@@ -49,6 +49,12 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(fontSize.rawValue, forKey: "FontSize")
         }
     }
+    @Published var fontFace: FontFace = .charter {
+        didSet {
+            guard didLoad else { return }
+            UserDefaults.standard.set(fontFace.rawValue, forKey: "FontFace")
+        }
+    }
     @Published var theme: Theme = .dark {
         didSet {
             UserDefaults.standard.set(theme.rawValue, forKey: "Theme")
@@ -72,6 +78,10 @@ final class EditorModel: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "FontSize"),
            let f = FontSize(rawValue: saved) {
             fontSize = f
+        }
+        if let saved = UserDefaults.standard.string(forKey: "FontFace"),
+           let face = FontFace(rawValue: saved) {
+            fontFace = face
         }
         if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
             text = loaded
@@ -152,6 +162,7 @@ struct EditorView: View {
                         scrollToken: model.scrollToken,
                         scrollTarget: model.scrollTarget,
                         fontSize: model.fontSize,
+                        fontFace: model.fontFace,
                         theme: model.theme
                     )
                     .padding(.horizontal, 28)
@@ -159,7 +170,7 @@ struct EditorView: View {
                     .padding(.bottom, 4)
                     if model.text.isEmpty {
                         Text(model.placeholder)
-                            .font(.custom("Charter", size: model.fontSize.pointSize))
+                            .font(.custom(model.fontFace.familyName, size: model.fontSize.pointSize))
                             .foregroundStyle(.tertiary)
                             .allowsHitTesting(false)
                             .padding(.horizontal, 28)

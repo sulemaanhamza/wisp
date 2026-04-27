@@ -13,9 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenuBuilder.make(target: self)
         let panel = PanelController(model: model, updater: updater)
         panelController = panel
-        menuBarController = MenuBarController { [weak panel] in
-            panel?.toggle()
-        }
+        menuBarController = MenuBarController(
+            onClick: { [weak panel] in panel?.toggle() },
+            currentFontFace: { [weak self] in self?.model.fontFace ?? .charter },
+            onSelectFontFace: { [weak self] face in self?.model.fontFace = face }
+        )
         // ⌥Space opens or dismisses the panel from anywhere.
         hotKey.register(
             keyCode: UInt32(kVK_Space),

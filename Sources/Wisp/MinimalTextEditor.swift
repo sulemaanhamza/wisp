@@ -7,6 +7,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     var scrollToken: Int
     var scrollTarget: Int
     var fontSize: FontSize
+    var fontFace: FontFace
     var theme: Theme
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -19,7 +20,7 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
 
-        let font = Self.makeFont(size: fontSize.pointSize)
+        let font = Self.makeFont(face: fontFace, size: fontSize.pointSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.45
 
@@ -42,6 +43,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         Self.applyPalette(Palette.for(theme), to: textView, font: font, paragraph: paragraph)
 
         context.coordinator.lastFontSize = fontSize
+        context.coordinator.lastFontFace = fontFace
         context.coordinator.lastTheme = theme
         return scrollView
     }
@@ -55,9 +57,13 @@ struct MinimalTextEditor: NSViewRepresentable {
             context.coordinator.lastFontSize = fontSize
             applyFont(to: textView)
         }
+        if context.coordinator.lastFontFace != fontFace {
+            context.coordinator.lastFontFace = fontFace
+            applyFont(to: textView)
+        }
         if context.coordinator.lastTheme != theme {
             context.coordinator.lastTheme = theme
-            let font = Self.makeFont(size: fontSize.pointSize)
+            let font = Self.makeFont(face: fontFace, size: fontSize.pointSize)
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineHeightMultiple = 1.45
             Self.applyPalette(Palette.for(theme), to: textView, font: font, paragraph: paragraph)
@@ -83,7 +89,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     }
 
     private func applyFont(to textView: NSTextView) {
-        let font = Self.makeFont(size: fontSize.pointSize)
+        let font = Self.makeFont(face: fontFace, size: fontSize.pointSize)
         textView.font = font
         var attrs = textView.typingAttributes
         attrs[.font] = font
@@ -237,9 +243,14 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
     }
 
-    private static func makeFont(size: CGFloat) -> NSFont {
-        for name in ["Charter", "Iowan Old Style", "New York"] {
-            if let font = NSFont(name: name, size: size) {
+    private static func makeFont(face: FontFace, size: CGFloat) -> NSFont {
+        if let font = NSFont(name: face.familyName, size: size) {
+            return font
+        }
+        // Selected face is missing for some reason — fall through to a
+        // sensible serif so we never crash on font lookup.
+        for fallback in ["Charter", "Iowan Old Style", "New York"] {
+            if let font = NSFont(name: fallback, size: size) {
                 return font
             }
         }
@@ -258,6 +269,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         var lastFocusToken: Int = 0
         var lastScrollToken: Int = 0
         var lastFontSize: FontSize = .medium
+        var lastFontFace: FontFace = .charter
         var lastTheme: Theme = .dark
 
         init(text: Binding<String>) {
@@ -276,7 +288,7 @@ struct MinimalTextEditor: NSViewRepresentable {
             // re-apply heading + bold/italic styling. Cheap enough at
             // scratchpad sizes; keeps everything styled while typing.
             if let storage = textView.textStorage {
-                let baseFont = MinimalTextEditor.makeFont(size: lastFontSize.pointSize)
+                let baseFont = MinimalTextEditor.makeFont(face: lastFontFace, size: lastFontSize.pointSize)
                 let total = NSRange(location: 0, length: storage.length)
                 storage.addAttribute(.font, value: baseFont, range: total)
                 MinimalTextEditor.styleHeadings(in: storage, baseFont: baseFont)
