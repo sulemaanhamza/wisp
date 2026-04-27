@@ -61,6 +61,30 @@ final class MenuBarController: NSObject {
         onSetHotKey()
     }
 
+    @objc private func showAbout() {
+        let credits = NSAttributedString(
+            string: """
+            A minimalist macOS scratchpad — open with one keypress, type, dismiss.
+
+            MIT licensed. Source at github.com/sulemaanhamza/wisp.
+
+            Body type set in Charter (default), Iowan Old Style, Hoefler Text, Palatino, Optima, or Avenir Next — all preinstalled on macOS.
+            """,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        )
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Wisp",
+            .applicationVersion: version,
+            .credits: credits,
+            .init(rawValue: "Copyright"): "© 2026 Suleman Hamza",
+        ])
+    }
+
     private func showContextMenu() {
         let menu = NSMenu()
 
@@ -99,6 +123,14 @@ final class MenuBarController: NSObject {
         )
         hotKeyItem.target = self
         menu.addItem(hotKeyItem)
+
+        let aboutItem = NSMenuItem(
+            title: "About Wisp",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
 
         menu.addItem(NSMenuItem.separator())
 
