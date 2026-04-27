@@ -36,6 +36,8 @@ final class EditorModel: ObservableObject {
     @Published private(set) var placeholder: String = ""
     @Published var showHelp: Bool = false
     @Published var showHotKeyCapture: Bool = false
+    @Published var showFirstRunHint: Bool = false
+    @Published var showTour: Bool = false
     @Published var hotKey: HotKey = .default {
         didSet {
             guard didLoad else { return }
@@ -100,6 +102,7 @@ final class EditorModel: ObservableObject {
         if let saved = HotKey.loadFromDefaults() {
             hotKey = saved
         }
+        showFirstRunHint = !UserDefaults.standard.bool(forKey: "HasSeenFirstRunTour")
         if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
             text = loaded
         }
@@ -128,6 +131,16 @@ final class EditorModel: ObservableObject {
 
     func refreshPlaceholder() {
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
+    }
+
+    func openTour() {
+        showTour = true
+    }
+
+    func dismissTour() {
+        showTour = false
+        showFirstRunHint = false
+        UserDefaults.standard.set(true, forKey: "HasSeenFirstRunTour")
     }
 
     /// Force a synchronous flush — call from applicationWillTerminate so an
@@ -167,7 +180,7 @@ struct EditorView: View {
     @ObservedObject var updater: Updater
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 HeaderBar(headings: model.headings) { heading in
                     model.jumpTo(heading)
@@ -208,6 +221,25 @@ struct EditorView: View {
                         }
                     }
                 )
+            }
+            if model.showFirstRunHint && !model.showTour {
+                FirstRunDot {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        model.openTour()
+                    }
+                }
+                .padding(.top, 14)
+                .padding(.trailing, 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .transition(.opacity)
+            }
+            if model.showTour {
+                TourOverlay(theme: model.theme) {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        model.dismissTour()
+                    }
+                }
+                .transition(.opacity)
             }
             if model.showHelp {
                 HelpOverlay(theme: model.theme) {

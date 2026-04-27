@@ -39,6 +39,9 @@ struct HelpOverlay: View {
                     (":check:   :x:   :star:", "✅  ❌  ⭐"),
                     (":bulb:   :warning:", "💡  ⚠️"),
                 ])
+                section("Settings", items: [
+                    ("Right-click", "menu bar icon — font, shortcut, about"),
+                ])
 
                 Text("Click anywhere or press Esc to close.")
                     .font(.system(size: 11))

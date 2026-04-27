@@ -113,6 +113,10 @@ final class PanelController {
                 self.model.showHotKeyCapture = false
                 return true
             }
+            if self.model.showTour {
+                self.model.dismissTour()
+                return true
+            }
             if self.model.showHelp {
                 self.model.showHelp = false
                 return true
