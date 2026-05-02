@@ -21,6 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSetHotKey: { [weak self, weak panel] in
                 panel?.openIfNeeded()
                 self?.model.showHotKeyCapture = true
+            },
+            onShowAbout: { [weak self, weak panel] in
+                // The Wisp panel is .floating-level so the standard
+                // about panel (which opens at .normal) gets stuck
+                // behind it. Dismissing first gives the about panel
+                // the screen; user re-summons Wisp afterwards.
+                panel?.dismiss()
+                self?.showStandardAboutPanel()
             }
         )
 
@@ -75,5 +83,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Flush any pending debounced save so quitting never loses the
         // last few keystrokes.
         model.flushSave()
+    }
+
+    private func showStandardAboutPanel() {
+        let credits = NSAttributedString(
+            string: """
+            A minimalist macOS scratchpad — open with one keypress, type, dismiss.
+
+            MIT licensed. Source at github.com/sulemaanhamza/wisp.
+
+            Body type set in Charter (default), Iowan Old Style, Hoefler Text, Palatino, Optima, or Avenir Next — all preinstalled on macOS.
+            """,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        )
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Wisp",
+            .applicationVersion: version,
+            .credits: credits,
+            .init(rawValue: "Copyright"): "© 2026 Suleman Hamza",
+        ])
     }
 }

@@ -8,19 +8,22 @@ final class MenuBarController: NSObject {
     private let onSelectFontFace: (FontFace) -> Void
     private let currentHotKey: () -> HotKey
     private let onSetHotKey: () -> Void
+    private let onShowAbout: () -> Void
 
     init(
         onClick: @escaping () -> Void,
         currentFontFace: @escaping () -> FontFace,
         onSelectFontFace: @escaping (FontFace) -> Void,
         currentHotKey: @escaping () -> HotKey,
-        onSetHotKey: @escaping () -> Void
+        onSetHotKey: @escaping () -> Void,
+        onShowAbout: @escaping () -> Void
     ) {
         self.onClick = onClick
         self.currentFontFace = currentFontFace
         self.onSelectFontFace = onSelectFontFace
         self.currentHotKey = currentHotKey
         self.onSetHotKey = onSetHotKey
+        self.onShowAbout = onShowAbout
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -61,28 +64,8 @@ final class MenuBarController: NSObject {
         onSetHotKey()
     }
 
-    @objc private func showAbout() {
-        let credits = NSAttributedString(
-            string: """
-            A minimalist macOS scratchpad — open with one keypress, type, dismiss.
-
-            MIT licensed. Source at github.com/sulemaanhamza/wisp.
-
-            Body type set in Charter (default), Iowan Old Style, Hoefler Text, Palatino, Optima, or Avenir Next — all preinstalled on macOS.
-            """,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
-        )
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Wisp",
-            .applicationVersion: version,
-            .credits: credits,
-            .init(rawValue: "Copyright"): "© 2026 Suleman Hamza",
-        ])
+    @objc private func handleShowAbout() {
+        onShowAbout()
     }
 
     private func showContextMenu() {
@@ -126,7 +109,7 @@ final class MenuBarController: NSObject {
 
         let aboutItem = NSMenuItem(
             title: "About Wisp",
-            action: #selector(showAbout),
+            action: #selector(handleShowAbout),
             keyEquivalent: ""
         )
         aboutItem.target = self

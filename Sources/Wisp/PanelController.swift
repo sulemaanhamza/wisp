@@ -131,6 +131,12 @@ final class PanelController {
         }
     }
 
+    func dismiss() {
+        if panel.isVisible {
+            panel.orderOut(nil)
+        }
+    }
+
     func toggle() {
         if panel.isVisible {
             panel.orderOut(nil)
