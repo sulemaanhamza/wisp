@@ -9,12 +9,13 @@
 #   ./scripts/release.sh 0.1.27 release-notes.md
 #
 # What it does, in order:
-#   1. Build Wisp.app at the given version (via build-app.sh)
-#   2. Zip it (build/Wisp-<version>.zip)
-#   3. Create + push annotated git tag v<version>
-#   4. Create GitHub release with notes (from file or default)
-#   5. Upload the zip as a release asset
-#   6. Bump the homebrew tap (via bump-tap.sh)
+#   1. Run self-tests — refuses to release on any failure
+#   2. Build Wisp.app at the given version (via build-app.sh)
+#   3. Zip it (build/Wisp-<version>.zip)
+#   4. Create + push annotated git tag v<version>
+#   5. Create GitHub release with notes (from file or default)
+#   6. Upload the zip as a release asset
+#   7. Bump the homebrew tap (via bump-tap.sh)
 #
 # Assumes you're on a clean working tree at the commit you want to ship,
 # and you've already pushed those commits to main. If anything fails
@@ -49,18 +50,21 @@ if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
     exit 1
 fi
 
-echo "==> 1/6 Building $NAME $VERSION..."
+echo "==> 1/7 Running self-tests..."
+swift run Wisp --test
+
+echo "==> 2/7 Building $NAME $VERSION..."
 ./scripts/build-app.sh "$VERSION"
 
-echo "==> 2/6 Zipping..."
+echo "==> 3/7 Zipping..."
 rm -f "$ZIP_PATH"
 (cd "$ROOT/build" && /usr/bin/ditto -c -k --keepParent "$NAME.app" "$ZIP_NAME")
 
-echo "==> 3/6 Tagging and pushing $TAG..."
+echo "==> 4/7 Tagging and pushing $TAG..."
 git tag -a "$TAG" -m "$TAG"
 git push origin "$TAG"
 
-echo "==> 4/6 Creating GitHub release..."
+echo "==> 5/7 Creating GitHub release..."
 if [[ -n "$NOTES_FILE" ]]; then
     [[ -f "$NOTES_FILE" ]] || { echo "Error: $NOTES_FILE not found" >&2; exit 1; }
     gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
@@ -68,10 +72,10 @@ else
     gh release create "$TAG" --title "$TAG" --notes "Release $TAG. Edit these notes on GitHub for a proper changelog."
 fi
 
-echo "==> 5/6 Uploading $ZIP_NAME..."
+echo "==> 6/7 Uploading $ZIP_NAME..."
 gh release upload "$TAG" "$ZIP_PATH"
 
-echo "==> 6/6 Bumping homebrew tap..."
+echo "==> 7/7 Bumping homebrew tap..."
 ./scripts/bump-tap.sh "$VERSION"
 
 echo ""

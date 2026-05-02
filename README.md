@@ -48,6 +48,14 @@ cd wisp
 swift run
 ```
 
+## Contributing
+
+Run the test suite before sending a pull request:
+
+```sh
+swift run Wisp --test
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
