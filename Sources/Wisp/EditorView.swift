@@ -38,6 +38,10 @@ final class EditorModel: ObservableObject {
     @Published var showHotKeyCapture: Bool = false
     @Published var showFirstRunHint: Bool = false
     @Published var showTour: Bool = false
+    /// Set to true when the user clicks "Later" on the update overlay.
+    /// Reset to false on every panel-open so the overlay reappears on
+    /// the next interaction if an update is still available.
+    @Published var updateDismissed: Bool = false
     @Published var hotKey: HotKey = .default {
         didSet {
             guard didLoad else { return }
@@ -266,11 +270,38 @@ struct EditorView: View {
                 )
                 .transition(.opacity)
             }
+            if shouldShowUpdateOverlay {
+                UpdateAvailableOverlay(
+                    theme: model.theme,
+                    state: updater.state,
+                    onUpdate: { updater.startUpdateAndRestart() },
+                    onLater: {
+                        updater.cancelAutoApply()
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            model.updateDismissed = true
+                        }
+                    }
+                )
+                .transition(.opacity)
+            }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(borderColor, lineWidth: 1)
                 .allowsHitTesting(false)
+        }
+    }
+
+    /// Show the update overlay whenever there's something installable
+    /// (.available or .pending) or actively downloading, and the user
+    /// hasn't dismissed it for this panel-open session. Yields to
+    /// help/tour/hotkey-capture so those keep their full attention.
+    private var shouldShowUpdateOverlay: Bool {
+        guard !model.updateDismissed else { return false }
+        guard !model.showHelp, !model.showTour, !model.showHotKeyCapture else { return false }
+        switch updater.state {
+        case .available, .downloading, .pending: return true
+        case .idle: return false
         }
     }
 

@@ -146,6 +146,11 @@ final class PanelController {
             applyTheme(model.theme)
             model.requestFocus()
             model.refreshPlaceholder()
+            // Reset the per-session dismissal so a previously "Later"d
+            // update reappears on the next interaction. The check
+            // itself is throttled inside Updater.
+            model.updateDismissed = false
+            Task { [weak self] in await self?.updater.check() }
             // Recompute shadow against current content alpha and force a
             // visual-effect re-render so the blur picks up the right
             // appearance on first show.

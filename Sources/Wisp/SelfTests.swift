@@ -214,6 +214,45 @@ enum SelfTests {
         check("LaunchSource: unrelated key → falls back to user-initiated",
               LaunchSource.isUserInitiated(launchUserInfo: ["SomeOtherKey": false]))
 
+        // MARK: - Updater throttle
+
+        let now = Date()
+        check("Updater.shouldCheck nil lastChecked → true",
+              Updater.shouldCheck(now: now, lastCheckedAt: nil, throttle: 60))
+        check("Updater.shouldCheck just-now → false",
+              !Updater.shouldCheck(
+                now: now, lastCheckedAt: now, throttle: 60))
+        check("Updater.shouldCheck 30s ago, 60s throttle → false",
+              !Updater.shouldCheck(
+                now: now,
+                lastCheckedAt: now.addingTimeInterval(-30),
+                throttle: 60))
+        check("Updater.shouldCheck 60s ago, 60s throttle → true",
+              Updater.shouldCheck(
+                now: now,
+                lastCheckedAt: now.addingTimeInterval(-60),
+                throttle: 60))
+        check("Updater.shouldCheck 120s ago, 60s throttle → true",
+              Updater.shouldCheck(
+                now: now,
+                lastCheckedAt: now.addingTimeInterval(-120),
+                throttle: 60))
+
+        // MARK: - Updater.buttonAction
+
+        let stubURL = URL(string: "https://example.com/wisp.zip")!
+        check("buttonAction(.idle) = noop",
+              Updater.buttonAction(for: .idle) == .noop)
+        check("buttonAction(.available) = startDownload",
+              Updater.buttonAction(for: .available(version: "0.1.36", zipURL: stubURL))
+                == .startDownload)
+        check("buttonAction(.downloading) = noop",
+              Updater.buttonAction(for: .downloading(version: "0.1.36"))
+                == .noop)
+        check("buttonAction(.pending) = applyAndRestart",
+              Updater.buttonAction(for: .pending(version: "0.1.36"))
+                == .applyAndRestart)
+
         // MARK: - Summary
 
         let total = passed + failures.count

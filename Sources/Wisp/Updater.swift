@@ -17,6 +17,16 @@ final class Updater: ObservableObject {
 
     private let owner = "sulemaanhamza"
     private let repo = "wisp"
+    private var lastCheckedAt: Date?
+    /// Set when the user clicks "Update & Restart" while still in
+    /// `.available`. Drives an automatic apply+exit the moment download
+    /// completes, so the user only has to click once.
+    private var pendingAutoApply = false
+
+    /// Re-check no more often than this (politeness toward GitHub's
+    /// 60/hour unauth rate limit, and avoids redundant fetches when the
+    /// user is rapidly toggling the panel).
+    nonisolated static let checkThrottle: TimeInterval = 60
 
     nonisolated static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
@@ -28,9 +38,37 @@ final class Updater: ObservableObject {
         }
     }
 
+    /// What the primary update button should do for a given state.
+    /// Pulled out as a pure function so the decision is unit-testable.
+    enum ButtonAction: Equatable {
+        case startDownload
+        case applyAndRestart
+        case noop
+    }
+    nonisolated static func buttonAction(for state: UpdateState) -> ButtonAction {
+        switch state {
+        case .available: return .startDownload
+        case .pending: return .applyAndRestart
+        case .idle, .downloading: return .noop
+        }
+    }
+
+    /// `true` when enough time has passed since the last check to make
+    /// a fresh network call worth it. Pure so it's testable.
+    nonisolated static func shouldCheck(
+        now: Date,
+        lastCheckedAt: Date?,
+        throttle: TimeInterval = checkThrottle
+    ) -> Bool {
+        guard let lastCheckedAt else { return true }
+        return now.timeIntervalSince(lastCheckedAt) >= throttle
+    }
+
     func check() async {
         if case .pending = state { return }
         if case .downloading = state { return }
+        guard Self.shouldCheck(now: Date(), lastCheckedAt: lastCheckedAt) else { return }
+        lastCheckedAt = Date()
         do {
             let release = try await fetchLatestRelease()
             let remote = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
@@ -48,12 +86,38 @@ final class Updater: ObservableObject {
         case .available:
             Task { await startDownload() }
         case .pending:
-            // User wants to apply now rather than waiting for next launch.
-            if Self.applyPendingUpdateIfPossible() {
-                exit(0)
-            }
+            applyAndExit()
         case .idle, .downloading:
             break
+        }
+    }
+
+    /// Single-button "Update & Restart" entry point used by the
+    /// in-panel overlay. Downloads first if needed, then auto-applies
+    /// once the download finishes.
+    func startUpdateAndRestart() {
+        switch Self.buttonAction(for: state) {
+        case .startDownload:
+            pendingAutoApply = true
+            Task { await startDownload() }
+        case .applyAndRestart:
+            applyAndExit()
+        case .noop:
+            break
+        }
+    }
+
+    /// Called when the user dismisses the update overlay mid-download.
+    /// We can't cleanly abort the in-flight URLSession download from
+    /// here, but we can stop ourselves from auto-applying (and quitting
+    /// the user out of their session) when it eventually completes.
+    func cancelAutoApply() {
+        pendingAutoApply = false
+    }
+
+    private func applyAndExit() {
+        if Self.applyPendingUpdateIfPossible() {
+            exit(0)
         }
     }
 
@@ -65,8 +129,13 @@ final class Updater: ObservableObject {
             UserDefaults.standard.set(version, forKey: pendingVersionKey)
             UserDefaults.standard.set(dest.path, forKey: pendingZipKey)
             state = .pending(version: version)
+            if pendingAutoApply {
+                pendingAutoApply = false
+                applyAndExit()
+            }
         } catch {
             // Roll back to available so the user can retry.
+            pendingAutoApply = false
             state = .available(version: version, zipURL: zipURL)
         }
     }

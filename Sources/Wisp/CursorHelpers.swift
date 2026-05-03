@@ -23,4 +23,16 @@ extension View {
                 }
             }
     }
+
+    /// Force the arrow cursor while hovering this view. Used to keep
+    /// NSTextView's I-beam from bleeding through overlays placed on
+    /// top of the editor — same `onContinuousHover` re-assert pattern
+    /// as `pointerCursor`.
+    func arrowCursor() -> some View {
+        self.onContinuousHover { phase in
+            if case .active = phase {
+                NSCursor.arrow.set()
+            }
+        }
+    }
 }
