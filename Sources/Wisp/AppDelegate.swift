@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the screen; user re-summons Wisp afterwards.
                 panel?.dismiss()
                 self?.showStandardAboutPanel()
+            },
+            currentLaunchAtLogin: { LaunchAtLogin.isEnabled },
+            onToggleLaunchAtLogin: {
+                LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled)
             }
         )
 

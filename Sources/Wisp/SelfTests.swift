@@ -180,6 +180,19 @@ enum SelfTests {
         check("Theme.dark.rawValue",  Theme.dark.rawValue == "dark")
         check("Theme.light.rawValue", Theme.light.rawValue == "light")
 
+        // MARK: - LaunchAtLogin
+        // Smoke-only: SMAppService talks to a system daemon and `swift
+        // run` can't actually register, so we verify the API contract
+        // (returns a Bool, idempotent no-op for current state) without
+        // mutating real state.
+
+        let launchBefore = LaunchAtLogin.isEnabled
+        check("LaunchAtLogin.isEnabled is bool",
+              launchBefore == true || launchBefore == false)
+        LaunchAtLogin.setEnabled(launchBefore)
+        check("LaunchAtLogin.setEnabled(current) is no-op",
+              LaunchAtLogin.isEnabled == launchBefore)
+
         // MARK: - Summary
 
         let total = passed + failures.count

@@ -9,6 +9,8 @@ final class MenuBarController: NSObject {
     private let currentHotKey: () -> HotKey
     private let onSetHotKey: () -> Void
     private let onShowAbout: () -> Void
+    private let currentLaunchAtLogin: () -> Bool
+    private let onToggleLaunchAtLogin: () -> Void
 
     init(
         onClick: @escaping () -> Void,
@@ -16,7 +18,9 @@ final class MenuBarController: NSObject {
         onSelectFontFace: @escaping (FontFace) -> Void,
         currentHotKey: @escaping () -> HotKey,
         onSetHotKey: @escaping () -> Void,
-        onShowAbout: @escaping () -> Void
+        onShowAbout: @escaping () -> Void,
+        currentLaunchAtLogin: @escaping () -> Bool,
+        onToggleLaunchAtLogin: @escaping () -> Void
     ) {
         self.onClick = onClick
         self.currentFontFace = currentFontFace
@@ -24,6 +28,8 @@ final class MenuBarController: NSObject {
         self.currentHotKey = currentHotKey
         self.onSetHotKey = onSetHotKey
         self.onShowAbout = onShowAbout
+        self.currentLaunchAtLogin = currentLaunchAtLogin
+        self.onToggleLaunchAtLogin = onToggleLaunchAtLogin
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -68,6 +74,10 @@ final class MenuBarController: NSObject {
         onShowAbout()
     }
 
+    @objc private func handleToggleLaunchAtLogin() {
+        onToggleLaunchAtLogin()
+    }
+
     private func showContextMenu() {
         let menu = NSMenu()
 
@@ -106,6 +116,15 @@ final class MenuBarController: NSObject {
         )
         hotKeyItem.target = self
         menu.addItem(hotKeyItem)
+
+        let launchItem = NSMenuItem(
+            title: "Launch at Login",
+            action: #selector(handleToggleLaunchAtLogin),
+            keyEquivalent: ""
+        )
+        launchItem.target = self
+        launchItem.state = currentLaunchAtLogin() ? .on : .off
+        menu.addItem(launchItem)
 
         let aboutItem = NSMenuItem(
             title: "About Wisp",
