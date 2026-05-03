@@ -60,6 +60,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task { await updater.check() }
+
+        // Open the panel for user-initiated launches (clicked from
+        // Applications, Spotlight, Finder). When macOS auto-launches us
+        // at login the key is false — we stay quiet in the menu bar so
+        // login isn't noisy.
+        if LaunchSource.isUserInitiated(launchUserInfo: notification.userInfo) {
+            presentForUserAction()
+        }
+    }
+
+    /// Re-launching the app while it's already running (Spotlight,
+    /// Finder double-click) hits this. Treat it as "open the panel."
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        presentForUserAction()
+        return true
+    }
+
+    /// Bring Wisp to the front and show the panel. Used on first
+    /// user-initiated launch and on re-activation. The hotkey-summon
+    /// path stays separate (toggle()) so it doesn't steal focus from
+    /// whatever app the user was in when they pressed ⌥Space.
+    private func presentForUserAction() {
+        NSApp.activate(ignoringOtherApps: true)
+        panelController?.openIfNeeded()
     }
 
     @discardableResult

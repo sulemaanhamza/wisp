@@ -193,6 +193,27 @@ enum SelfTests {
         check("LaunchAtLogin.setEnabled(current) is no-op",
               LaunchAtLogin.isEnabled == launchBefore)
 
+        // MARK: - LaunchSource
+
+        check("LaunchSource: nil userInfo → user-initiated (fallback)",
+              LaunchSource.isUserInitiated(launchUserInfo: nil))
+        check("LaunchSource: empty userInfo → user-initiated (fallback)",
+              LaunchSource.isUserInitiated(launchUserInfo: [:]))
+        check("LaunchSource: isDefault=true → user-initiated",
+              LaunchSource.isUserInitiated(
+                  launchUserInfo: [LaunchSource.isDefaultLaunchKey: true]))
+        check("LaunchSource: isDefault=false → not user-initiated",
+              !LaunchSource.isUserInitiated(
+                  launchUserInfo: [LaunchSource.isDefaultLaunchKey: false]))
+        check("LaunchSource: NSNumber(true) bridges → user-initiated",
+              LaunchSource.isUserInitiated(
+                  launchUserInfo: [LaunchSource.isDefaultLaunchKey: NSNumber(value: true)]))
+        check("LaunchSource: NSNumber(false) bridges → not user-initiated",
+              !LaunchSource.isUserInitiated(
+                  launchUserInfo: [LaunchSource.isDefaultLaunchKey: NSNumber(value: false)]))
+        check("LaunchSource: unrelated key → falls back to user-initiated",
+              LaunchSource.isUserInitiated(launchUserInfo: ["SomeOtherKey": false]))
+
         // MARK: - Summary
 
         let total = passed + failures.count
