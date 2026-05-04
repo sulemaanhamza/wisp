@@ -38,7 +38,9 @@ The `xattr` step is needed because Wisp isn't signed with an Apple Developer ID 
 - **Emoji shortcodes** — `:rocket:` `:fire:` `:heart:` `:check:` and more
 - **Bold / Italic** — ⌘B / ⌘I
 - **Auto-update** — downloads new versions in the background
+- **Launch at Login** — toggle in the right-click menu
 - **Plain markdown on disk** at `~/Library/Application Support/Wisp/scratchpad.md`
+- **Sync across Macs** — point at any folder via the right-click menu (iCloud Drive, Dropbox, Syncthing all work)
 
 Click the `?` in the footer for the full keyboard shortcut list.
 
