@@ -39,8 +39,12 @@ struct HelpOverlay: View {
                     (":check:   :x:   :star:", "✅  ❌  ⭐"),
                     (":bulb:   :warning:", "💡  ⚠️"),
                 ])
-                section("Settings", items: [
-                    ("Right-click", "menu bar icon — font, shortcut, about"),
+                section("Settings — right-click the menu bar icon", items: [
+                    ("Font", "pick from six preinstalled fonts"),
+                    ("Set Shortcut…", "rebind the global hotkey"),
+                    ("Launch at Login", "start automatically at login"),
+                    ("Storage Location…", "any folder — iCloud Drive, Dropbox for sync"),
+                    ("About Wisp", "version + credits"),
                 ])
 
                 Text("Click anywhere or press Esc to close.")
