@@ -20,6 +20,13 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
 
+        // Swap in the HR-aware layout manager so HR-only lines render
+        // as a full-width horizontal line that tracks panel width.
+        // The replacement keeps the same text container and storage.
+        if let textContainer = textView.textContainer {
+            textContainer.replaceLayoutManager(HorizontalRuleLayoutManager())
+        }
+
         let font = Self.makeFont(face: fontFace, size: fontSize.pointSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.45
@@ -118,10 +125,13 @@ struct MinimalTextEditor: NSViewRepresentable {
             .foregroundColor: palette.text,
             .paragraphStyle: paragraph,
         ]
+        if let lm = textView.layoutManager as? HorizontalRuleLayoutManager {
+            lm.ruleColor = palette.divider
+        }
         if let storage = textView.textStorage {
             let range = NSRange(location: 0, length: storage.length)
             storage.addAttributes([.foregroundColor: palette.text], range: range)
-            dimHorizontalRules(in: storage, palette: palette)
+            styleHorizontalRules(in: storage)
             styleHeadings(in: storage, baseFont: font)
             styleBoldItalic(in: storage, baseFont: font)
         }
@@ -206,40 +216,34 @@ struct MinimalTextEditor: NSViewRepresentable {
         return NSFont(descriptor: descriptor, size: base.pointSize) ?? base
     }
 
-    /// Walks the storage and applies `palette.divider` to runs of 3+
-    /// horizontal-rule glyphs (U+2500). Runs the divider should read as a
-    /// hint between paragraphs, not match word-weight.
-    private static func dimHorizontalRules(in storage: NSTextStorage, palette: Palette) {
+    /// Walks the storage line-by-line; for any line whose entire
+    /// content is HR markers (the new `---` form, or the legacy
+    /// `─` x N form from pre-0.1.38 files), set the foreground to
+    /// `.clear` so the characters are invisible. The full-width
+    /// rule is then drawn by `HorizontalRuleLayoutManager`.
+    private static func styleHorizontalRules(in storage: NSTextStorage) {
         let ns = storage.string as NSString
-        let hrChar: unichar = 0x2500
-        let length = ns.length
-        var runStart = -1
-        var i = 0
-        while i < length {
-            if ns.character(at: i) == hrChar {
-                if runStart < 0 { runStart = i }
-            } else if runStart >= 0 {
-                let runLen = i - runStart
-                if runLen >= 3 {
+        let total = ns.length
+        var lineStart = 0
+        while lineStart < total {
+            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
+            if HorizontalRuleLayoutManager.isHorizontalRuleLine(
+                lineRange: lineRange, in: ns
+            ) {
+                var contentRange = lineRange
+                if contentRange.length > 0,
+                   ns.character(at: contentRange.location + contentRange.length - 1) == 0x0A {
+                    contentRange.length -= 1
+                }
+                if contentRange.length > 0 {
                     storage.addAttribute(
                         .foregroundColor,
-                        value: palette.divider,
-                        range: NSRange(location: runStart, length: runLen)
+                        value: NSColor.clear,
+                        range: contentRange
                     )
                 }
-                runStart = -1
             }
-            i += 1
-        }
-        if runStart >= 0 {
-            let runLen = length - runStart
-            if runLen >= 3 {
-                storage.addAttribute(
-                    .foregroundColor,
-                    value: palette.divider,
-                    range: NSRange(location: runStart, length: runLen)
-                )
-            }
+            lineStart = lineRange.location + lineRange.length
         }
     }
 
@@ -284,13 +288,19 @@ struct MinimalTextEditor: NSViewRepresentable {
             // chunk of text, after which we restyle against the result.
             EmojiReplace.replaceIfMatched(in: textView)
 
-            // Live-restyle: reset font to base across the storage, then
-            // re-apply heading + bold/italic styling. Cheap enough at
-            // scratchpad sizes; keeps everything styled while typing.
+            // Live-restyle: reset font and foreground to base across
+            // the storage, then re-apply heading + bold/italic + HR
+            // styling. Resetting foreground first means lines that
+            // *stopped* being HRs (e.g., the user added a non-HR char)
+            // get their visible text color back. Cheap at scratchpad
+            // sizes.
             if let storage = textView.textStorage {
                 let baseFont = MinimalTextEditor.makeFont(face: lastFontFace, size: lastFontSize.pointSize)
+                let palette = Palette.for(lastTheme)
                 let total = NSRange(location: 0, length: storage.length)
                 storage.addAttribute(.font, value: baseFont, range: total)
+                storage.addAttribute(.foregroundColor, value: palette.text, range: total)
+                MinimalTextEditor.styleHorizontalRules(in: storage)
                 MinimalTextEditor.styleHeadings(in: storage, baseFont: baseFont)
                 MinimalTextEditor.styleBoldItalic(in: storage, baseFont: baseFont)
             }
@@ -385,9 +395,12 @@ struct MinimalTextEditor: NSViewRepresentable {
             return true
         }
 
-        /// Replace `range` with the horizontal-rule glyph string + newline,
-        /// move the cursor past it, and apply the dim divider color so the
-        /// glyph reads as a hint immediately.
+        /// Replace `range` with the horizontal-rule string + newline and
+        /// move the cursor past it. The HR characters are stored as
+        /// plain `---` (markdown standard); the visible full-width
+        /// line is drawn by HorizontalRuleLayoutManager, while the
+        /// `---` characters themselves are rendered with a clear
+        /// foreground so only the line shows.
         private func replaceWithHorizontalRule(in textView: NSTextView, range: NSRange) {
             let replacement = SmartEditing.horizontalRule + "\n"
             replace(in: textView, range: range, with: replacement)
@@ -395,7 +408,7 @@ struct MinimalTextEditor: NSViewRepresentable {
             let hrRange = NSRange(location: range.location, length: hrLength)
             textView.textStorage?.addAttribute(
                 .foregroundColor,
-                value: Palette.for(lastTheme).divider,
+                value: NSColor.clear,
                 range: hrRange
             )
         }

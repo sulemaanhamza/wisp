@@ -69,8 +69,30 @@ enum SelfTests {
 
         // MARK: - SmartEditing: HR constant
 
-        check("horizontalRule length = 40", SmartEditing.horizontalRule.count == 40)
-        check("horizontalRule all '─'", SmartEditing.horizontalRule.allSatisfy { $0 == "─" })
+        check("horizontalRule = '---'", SmartEditing.horizontalRule == "---")
+
+        // MARK: - HorizontalRuleLayoutManager.isHorizontalRuleLine
+
+        check("isHRLine '---' → true",
+              HorizontalRuleLayoutManager.isHorizontalRuleLine("---"))
+        check("isHRLine '----' → true",
+              HorizontalRuleLayoutManager.isHorizontalRuleLine("----"))
+        check("isHRLine '─' x 40 → true (legacy)",
+              HorizontalRuleLayoutManager.isHorizontalRuleLine(
+                String(repeating: "─", count: 40)))
+        check("isHRLine '---' + '─' x 5 → true (mixed)",
+              HorizontalRuleLayoutManager.isHorizontalRuleLine(
+                "---" + String(repeating: "─", count: 5)))
+        check("isHRLine '--' → false (only 2 chars)",
+              !HorizontalRuleLayoutManager.isHorizontalRuleLine("--"))
+        check("isHRLine '' → false",
+              !HorizontalRuleLayoutManager.isHorizontalRuleLine(""))
+        check("isHRLine '---x' → false (trailing char)",
+              !HorizontalRuleLayoutManager.isHorizontalRuleLine("---x"))
+        check("isHRLine 'x---' → false (leading char)",
+              !HorizontalRuleLayoutManager.isHorizontalRuleLine("x---"))
+        check("isHRLine '-- -' → false (space inside)",
+              !HorizontalRuleLayoutManager.isHorizontalRuleLine("-- -"))
 
         // MARK: - Headings parser
 

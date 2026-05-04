@@ -1,10 +1,12 @@
 import Foundation
 
 enum SmartEditing {
-    /// Plain-text horizontal rule — 40 unicode box-drawing characters.
-    /// Plain-text instead of a styled run so we don't have to switch
-    /// NSTextView into rich-text mode.
-    static let horizontalRule = String(repeating: "─", count: 40)
+    /// Plain-text horizontal rule, stored as the markdown-standard
+    /// `---`. The visual full-width line is drawn by the custom layout
+    /// manager (HorizontalRuleLayoutManager) — the on-disk text is
+    /// just three dashes, so rendering tracks the panel's width and
+    /// the file remains portable plain markdown.
+    static let horizontalRule = "---"
 
     static func isHorizontalRuleTrigger(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces) == "---"
