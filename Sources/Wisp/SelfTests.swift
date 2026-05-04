@@ -253,6 +253,36 @@ enum SelfTests {
               Updater.buttonAction(for: .pending(version: "0.1.36"))
                 == .applyAndRestart)
 
+        // MARK: - StorageLocation
+
+        check("StorageLocation.scratchpadFilename = scratchpad.md",
+              StorageLocation.scratchpadFilename == "scratchpad.md")
+        check("StorageLocation.backupPrefix = scratchpad-local-backup-",
+              StorageLocation.backupPrefix == "scratchpad-local-backup-")
+
+        let probeFolder = URL(fileURLWithPath: "/tmp/wisp-probe")
+        let composed = StorageLocation.scratchpadURL(in: probeFolder)
+        check("scratchpadURL(in:) ends with scratchpad.md",
+              composed.lastPathComponent == "scratchpad.md")
+        check("scratchpadURL(in:) is inside the chosen folder",
+              composed.deletingLastPathComponent().standardizedFileURL.path
+                == probeFolder.standardizedFileURL.path)
+
+        check("defaultFolder ends with /Wisp",
+              StorageLocation.defaultFolder.lastPathComponent == "Wisp")
+
+        // Backup filename: deterministic by date input, no colons (so it
+        // works on filesystems that disallow them), starts with the
+        // shared prefix.
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let backup = StorageLocation.backupFilename(at: fixedDate)
+        check("backupFilename starts with prefix",
+              backup.hasPrefix(StorageLocation.backupPrefix))
+        check("backupFilename ends with .md",
+              backup.hasSuffix(".md"))
+        check("backupFilename contains no colons",
+              !backup.contains(":"))
+
         // MARK: - Summary
 
         let total = passed + failures.count

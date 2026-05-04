@@ -25,7 +25,7 @@ final class EditorModel: ObservableObject {
     @Published var text: String = "" {
         didSet {
             headings = text.extractHeadings()
-            guard didLoad else { return }
+            guard didLoad, !isReloading else { return }
             scheduleSave()
         }
     }
@@ -89,6 +89,15 @@ final class EditorModel: ObservableObject {
 
     private var didLoad = false
     private var saveTask: Task<Void, Never>?
+    /// Set true while we're rewriting `text` from a disk reload — the
+    /// `text.didSet` save trigger checks this so we don't immediately
+    /// re-save the content we just loaded.
+    private var isReloading = false
+    /// mtime of the file the last time we successfully loaded from
+    /// disk. Drives reloadFromDiskIfChanged so we only re-read when
+    /// the file has actually moved on (e.g., another Mac wrote to it
+    /// via iCloud sync).
+    private var lastLoadedMTime: Date?
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: "Theme"),
@@ -107,11 +116,48 @@ final class EditorModel: ObservableObject {
             hotKey = saved
         }
         showFirstRunHint = !UserDefaults.standard.bool(forKey: "HasSeenFirstRunTour")
-        if let loaded = try? String(contentsOf: Self.scratchpadURL, encoding: .utf8) {
+        let url = StorageLocation.currentURL
+        if let loaded = try? String(contentsOf: url, encoding: .utf8) {
             text = loaded
+            lastLoadedMTime = Self.fileMTime(at: url)
         }
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
         didLoad = true
+    }
+
+    /// Re-read scratchpad.md from disk if its modification time has
+    /// advanced since we last loaded it. Called on every panel-open so
+    /// changes from another Mac (via iCloud Drive / Dropbox / etc.)
+    /// show up the next time the user summons Wisp. Mid-session writes
+    /// to the file from outside Wisp aren't observed (no file watcher
+    /// — kept intentionally simple).
+    func reloadFromDiskIfChanged() {
+        let url = StorageLocation.currentURL
+        guard let mtime = Self.fileMTime(at: url) else { return }
+        if let last = lastLoadedMTime, mtime <= last { return }
+        guard let loaded = try? String(contentsOf: url, encoding: .utf8) else { return }
+        if loaded != text {
+            isReloading = true
+            text = loaded
+            isReloading = false
+        }
+        lastLoadedMTime = mtime
+    }
+
+    /// Replace the in-memory text with a freshly chosen content (e.g.,
+    /// after switching to a folder that already contained a synced
+    /// scratchpad). Suppresses the auto-save that would otherwise fire
+    /// from `text.didSet`, so we don't bounce-write what we just read.
+    func adoptLoadedText(_ newText: String) {
+        isReloading = true
+        text = newText
+        isReloading = false
+        lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
+    }
+
+    nonisolated private static func fileMTime(at url: URL) -> Date? {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attrs?[.modificationDate] as? Date
     }
 
     func requestFocus() {
@@ -165,17 +211,12 @@ final class EditorModel: ObservableObject {
     }
 
     nonisolated private static func write(_ text: String) throws {
-        try text.write(to: scratchpadURL, atomically: true, encoding: .utf8)
-    }
-
-    nonisolated private static var scratchpadURL: URL {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first!
-        let dir = appSupport.appendingPathComponent("Wisp")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("scratchpad.md")
+        let url = StorageLocation.currentURL
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 }
 

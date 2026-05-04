@@ -144,6 +144,11 @@ final class PanelController {
             panel.center()
             panel.makeKeyAndOrderFront(nil)
             applyTheme(model.theme)
+            // Pick up changes another Mac wrote to scratchpad.md while
+            // we were dismissed — covers the iCloud/Dropbox sync case.
+            // Cheap (one stat + maybe one read), so safe to do every
+            // open.
+            model.reloadFromDiskIfChanged()
             model.requestFocus()
             model.refreshPlaceholder()
             // Reset the per-session dismissal so a previously "Later"d

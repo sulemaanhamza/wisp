@@ -11,6 +11,9 @@ final class MenuBarController: NSObject {
     private let onShowAbout: () -> Void
     private let currentLaunchAtLogin: () -> Bool
     private let onToggleLaunchAtLogin: () -> Void
+    private let isStorageCustom: () -> Bool
+    private let onPickStorageLocation: () -> Void
+    private let onResetStorageLocation: () -> Void
 
     init(
         onClick: @escaping () -> Void,
@@ -20,7 +23,10 @@ final class MenuBarController: NSObject {
         onSetHotKey: @escaping () -> Void,
         onShowAbout: @escaping () -> Void,
         currentLaunchAtLogin: @escaping () -> Bool,
-        onToggleLaunchAtLogin: @escaping () -> Void
+        onToggleLaunchAtLogin: @escaping () -> Void,
+        isStorageCustom: @escaping () -> Bool,
+        onPickStorageLocation: @escaping () -> Void,
+        onResetStorageLocation: @escaping () -> Void
     ) {
         self.onClick = onClick
         self.currentFontFace = currentFontFace
@@ -30,6 +36,9 @@ final class MenuBarController: NSObject {
         self.onShowAbout = onShowAbout
         self.currentLaunchAtLogin = currentLaunchAtLogin
         self.onToggleLaunchAtLogin = onToggleLaunchAtLogin
+        self.isStorageCustom = isStorageCustom
+        self.onPickStorageLocation = onPickStorageLocation
+        self.onResetStorageLocation = onResetStorageLocation
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -76,6 +85,14 @@ final class MenuBarController: NSObject {
 
     @objc private func handleToggleLaunchAtLogin() {
         onToggleLaunchAtLogin()
+    }
+
+    @objc private func handlePickStorageLocation() {
+        onPickStorageLocation()
+    }
+
+    @objc private func handleResetStorageLocation() {
+        onResetStorageLocation()
     }
 
     private func showContextMenu() {
@@ -125,6 +142,24 @@ final class MenuBarController: NSObject {
         launchItem.target = self
         launchItem.state = currentLaunchAtLogin() ? .on : .off
         menu.addItem(launchItem)
+
+        let storageItem = NSMenuItem(
+            title: "Storage Location…",
+            action: #selector(handlePickStorageLocation),
+            keyEquivalent: ""
+        )
+        storageItem.target = self
+        menu.addItem(storageItem)
+
+        if isStorageCustom() {
+            let resetItem = NSMenuItem(
+                title: "Reset Storage Location",
+                action: #selector(handleResetStorageLocation),
+                keyEquivalent: ""
+            )
+            resetItem.target = self
+            menu.addItem(resetItem)
+        }
 
         let aboutItem = NSMenuItem(
             title: "About Wisp",

@@ -33,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             currentLaunchAtLogin: { LaunchAtLogin.isEnabled },
             onToggleLaunchAtLogin: {
                 LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled)
+            },
+            isStorageCustom: { StorageLocation.isCustom },
+            onPickStorageLocation: { [weak self] in
+                self?.pickStorageLocation()
+            },
+            onResetStorageLocation: { [weak self] in
+                self?.resetStorageLocation()
             }
         )
 
@@ -111,6 +118,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Flush any pending debounced save so quitting never loses the
         // last few keystrokes.
         model.flushSave()
+    }
+
+    /// Open an NSOpenPanel for the user to pick a folder. If the
+    /// chosen folder already contains a scratchpad.md, confirm before
+    /// adopting it (the local text gets backed up either way). The
+    /// panel's sidebar shows iCloud Drive as a one-click destination,
+    /// so users wanting iCloud sync just navigate there.
+    private func pickStorageLocation() {
+        // Make sure the panel is open and active so NSOpenPanel attaches
+        // somewhere visible; otherwise it can sit behind the desktop.
+        panelController?.openIfNeeded()
+        NSApp.activate(ignoringOtherApps: true)
+
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Choose Wisp's Storage Folder"
+        openPanel.prompt = "Choose"
+        openPanel.message = "Pick a folder for scratchpad.md. Choose a folder inside iCloud Drive (or Dropbox, etc.) to sync across Macs."
+        openPanel.canChooseFiles = false
+        openPanel.canChooseDirectories = true
+        openPanel.canCreateDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.directoryURL = StorageLocation.currentFolder
+
+        guard openPanel.runModal() == .OK, let folder = openPanel.url else { return }
+
+        let candidate = StorageLocation.scratchpadURL(in: folder)
+        let destinationHasFile = FileManager.default.fileExists(atPath: candidate.path)
+        if destinationHasFile {
+            let alert = NSAlert()
+            alert.messageText = "A scratchpad already exists in this folder"
+            alert.informativeText = "Use the existing one? Your current text will be saved as a backup file in the previous location."
+            alert.addButton(withTitle: "Use Existing")
+            alert.addButton(withTitle: "Cancel")
+            alert.alertStyle = .informational
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        do {
+            let result = try StorageLocation.setFolder(folder, currentText: model.text)
+            if result.loadedExisting {
+                model.adoptLoadedText(result.newText)
+            } else {
+                // Refresh mtime baseline so the next reloadFromDiskIfChanged
+                // doesn't trip on the file we just wrote.
+                model.adoptLoadedText(model.text)
+            }
+            if let backupURL = result.backupURL {
+                let alert = NSAlert()
+                alert.messageText = "Local text saved as backup"
+                alert.informativeText = "Your previous scratchpad was saved to:\n\(backupURL.path)"
+                alert.addButton(withTitle: "OK")
+                alert.alertStyle = .informational
+                _ = alert.runModal()
+            }
+        } catch {
+            let alert = NSAlert(error: error)
+            _ = alert.runModal()
+        }
+    }
+
+    private func resetStorageLocation() {
+        do {
+            try StorageLocation.resetToDefault(currentText: model.text)
+            model.adoptLoadedText(model.text)
+        } catch {
+            let alert = NSAlert(error: error)
+            _ = alert.runModal()
+        }
     }
 
     private func showStandardAboutPanel() {
