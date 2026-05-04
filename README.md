@@ -8,6 +8,8 @@ A dead-simple macOS scratchpad. ⌥Space to summon, type, Esc to dismiss.
 
 ## Install
 
+Requires macOS 13 (Ventura) or later, Apple silicon.
+
 **Homebrew**
 
 ```sh
