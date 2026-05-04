@@ -19,7 +19,8 @@ struct BottomBar: View {
             Button(action: onHelpClick) {
                 Image(systemName: "questionmark")
                     .font(.system(size: 11, weight: .regular))
-                    .frame(width: 14, alignment: .center)
+                    .frame(width: 24, height: 20)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -27,7 +28,8 @@ struct BottomBar: View {
             Button(action: onToggleTheme) {
                 Image(systemName: theme == .dark ? "sun.max" : "moon")
                     .font(.system(size: 11, weight: .regular))
-                    .frame(width: 14, alignment: .center)
+                    .frame(width: 24, height: 20)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -35,7 +37,8 @@ struct BottomBar: View {
             Button(action: onCycleFontSize) {
                 Text("Aa")
                     .font(.system(size: indicatorSize, weight: .medium, design: .serif))
-                    .frame(width: 22, alignment: .center)
+                    .frame(width: 30, height: 20)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
