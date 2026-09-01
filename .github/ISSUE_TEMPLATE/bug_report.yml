@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in Wisp doesn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wisp version
+      description: Right-click the menu bar icon → About Wisp.
+      placeholder: "0.1.42"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: "macOS 15.3, M2 MacBook Air"
+    validations:
+      required: true
+  - type: textarea
+    id: storage
+    attributes:
+      label: Anything unusual about your setup?
+      description: >
+        A custom storage folder (iCloud Drive, Dropbox), a rebound shortcut,
+        or a very long scratchpad are all worth mentioning.
