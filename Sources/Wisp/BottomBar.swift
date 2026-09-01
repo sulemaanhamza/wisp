@@ -25,21 +25,25 @@ struct BottomBar: View {
             Spacer()
             updateIndicator
             Button(action: onHelpClick) {
-                Image(systemName: "questionmark")
-                    .font(.system(size: 11, weight: .regular))
-                    .frame(width: 24, height: 20)
-                    .contentShape(Rectangle())
-                    .overlay(alignment: .topTrailing) {
-                        // Static, not pulsing like the first-run dot:
-                        // this sits in a quiet footer next to a word
-                        // count and only has to be noticed, not chased.
-                        if hasUnseenTips {
-                            Circle()
-                                .fill(Color.accentColor)
-                                .frame(width: 5, height: 5)
-                                .offset(x: -1, y: 2)
-                        }
+                // A word, not a badge. A dot small enough to be calm in
+                // a footer this quiet turned out to be invisible, and a
+                // dot has to be decoded even when you do notice it —
+                // "New" says what it means and survives a system accent
+                // colour set to graphite.
+                HStack(spacing: 5) {
+                    if hasUnseenTips {
+                        Text("New")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
                     }
+                    Image(systemName: "questionmark")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(hasUnseenTips
+                                         ? AnyShapeStyle(Color.accentColor)
+                                         : AnyShapeStyle(.tertiary))
+                }
+                .frame(minWidth: 24, minHeight: 20)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
