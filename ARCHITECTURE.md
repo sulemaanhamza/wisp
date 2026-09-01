@@ -53,7 +53,7 @@ AppKit, it should be, so the self-tests can pin it.
 
 **Discovery is a list, not a release note.** `Tips.all` is the set of
 things a person would never guess Wisp can do. Append to it with the
-release that introduced the feature; the mark on the `?`, the "New"
+release that introduced the feature; the dot on the `?`, the "New"
 group in the help overlay and the stored marker all follow from that.
 There is no constant to remember to bump.
 

@@ -25,22 +25,17 @@ struct BottomBar: View {
             Spacer()
             updateIndicator
             Button(action: onHelpClick) {
-                // A word, not a badge. A dot small enough to be calm in
-                // a footer this quiet turned out to be invisible, and a
-                // dot has to be decoded even when you do notice it —
-                // "New" says what it means and survives a system accent
-                // colour set to graphite.
-                HStack(spacing: 5) {
+                // Same beacon as the first-run dot, footer-sized. The
+                // two never appear together: unseen tips are only
+                // flagged for someone who has already dismissed the
+                // tour.
+                HStack(spacing: 4) {
                     if hasUnseenTips {
-                        Text("New")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                        PulsingDot(dot: 5, ring: 11)
+                            .frame(width: 16, height: 16)
                     }
                     Image(systemName: "questionmark")
                         .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(hasUnseenTips
-                                         ? AnyShapeStyle(Color.accentColor)
-                                         : AnyShapeStyle(.tertiary))
                 }
                 .frame(minWidth: 24, minHeight: 20)
                 .contentShape(Rectangle())
