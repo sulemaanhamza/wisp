@@ -70,6 +70,15 @@ final class PanelController {
 
         let host = NSHostingView(rootView: EditorView(model: model, updater: updater))
         host.translatesAutoresizingMaskIntoConstraints = false
+        // The panel's size is the user's business, never the content's.
+        // Left at the default, the hosting view reports the SwiftUI
+        // content's ideal height as an intrinsic size; because it's
+        // pinned to the content view on all four edges with required
+        // constraints, anything taller than the panel — the help
+        // overlay — grew the window to fit, and the grown frame was
+        // then persisted. That's how a panel ended up 2630pt tall on a
+        // 1440pt screen.
+        host.sizingOptions = []
 
         inner.addSubview(visualEffect)
         inner.addSubview(tint)
@@ -103,8 +112,14 @@ final class PanelController {
         // Restore the user's last frame if it's still reachable on the
         // current screen layout; otherwise center at the default size.
         let screens = NSScreen.screens.map { $0.visibleFrame }
-        if let saved = PanelFrameStore.load(), PanelFrameStore.isUsable(saved, onScreens: screens) {
-            panel.setFrame(saved, display: false)
+        if let saved = PanelFrameStore.load(),
+           PanelFrameStore.isUsable(saved, onScreens: screens),
+           let host = NSScreen.main?.visibleFrame {
+            let fitted = PanelFrameStore.clamped(saved, to: host)
+            panel.setFrame(fitted, display: false)
+            // Write the correction straight back, so a frame saved by
+            // an older build can't keep coming back after every quit.
+            if fitted != saved { PanelFrameStore.save(fitted) }
         } else {
             panel.center()
         }
@@ -123,7 +138,13 @@ final class PanelController {
                 // assumeIsolated lets us touch panel.frame without a hop.
                 MainActor.assumeIsolated {
                     guard let panel else { return }
-                    PanelFrameStore.save(panel.frame)
+                    guard let screen = panel.screen?.visibleFrame
+                            ?? NSScreen.main?.visibleFrame else { return }
+                    let fitted = PanelFrameStore.clamped(panel.frame, to: screen)
+                    if fitted != panel.frame {
+                        panel.setFrame(fitted, display: true)
+                    }
+                    PanelFrameStore.save(fitted)
                 }
             }
             frameObservers.append(token)

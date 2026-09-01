@@ -722,6 +722,34 @@ enum SelfTests {
         check("tips: ids are unique",
               Set(Tips.all.map(\.id)).count == Tips.all.count)
 
+        // MARK: - PanelFrameStore.clamped
+
+        let screen = NSRect(x: 0, y: 0, width: 2560, height: 1400)
+        check("clamp: a frame that fits is left alone",
+              PanelFrameStore.clamped(
+                NSRect(x: 100, y: 100, width: 800, height: 640), to: screen)
+                == NSRect(x: 100, y: 100, width: 800, height: 640))
+        // The frame that actually shipped: 2630pt tall on a 1440pt display.
+        let poisoned = PanelFrameStore.clamped(
+            NSRect(x: 838, y: -1746, width: 1203, height: 2630), to: screen)
+        check("clamp: an over-tall frame is cut to the screen",
+              poisoned.height == 1400)
+        check("clamp: and pulled back on screen",
+              poisoned.minY >= screen.minY && poisoned.maxY <= screen.maxY)
+        check("clamp: width is capped too",
+              PanelFrameStore.clamped(
+                NSRect(x: 0, y: 0, width: 9999, height: 400), to: screen).width == 2560)
+        check("clamp: a window off the right edge comes back",
+              PanelFrameStore.clamped(
+                NSRect(x: 5000, y: 100, width: 800, height: 640), to: screen).maxX <= screen.maxX)
+        check("clamp: a window off the left edge comes back",
+              PanelFrameStore.clamped(
+                NSRect(x: -900, y: 100, width: 800, height: 640), to: screen).minX >= screen.minX)
+        check("clamp: the result always fits",
+              PanelFrameStore.clamped(
+                NSRect(x: -3000, y: -3000, width: 9999, height: 9999), to: screen)
+                == screen)
+
         // MARK: - Summary
 
         let total = passed + failures.count
