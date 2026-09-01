@@ -30,7 +30,7 @@ dependencies, no Xcode project.
 | `HorizontalRuleLayoutManager.swift` | Draws `---` lines as a full-width rule that tracks the panel's width. |
 | `Snapshots.swift` | Local version history. |
 | `StorageLocation.swift` | Where `scratchpad.md` lives, and moving it. |
-| `Inbox.swift`, `Checkbox.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
+| `Inbox.swift`, `Checkbox.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
 | `Updater.swift` | GitHub Releases → background download → bundle swap on next launch. |
 | `SelfTests.swift` | The suite. |
 
@@ -50,6 +50,12 @@ after any programmatic change to the text, because assigning
 
 **Pure logic gets its own type.** If a rule can be written without
 AppKit, it should be, so the self-tests can pin it.
+
+**Discovery is a list, not a release note.** `Tips.all` is the set of
+things a person would never guess Wisp can do. Append to it with the
+release that introduced the feature; the dot on the `?`, the "New"
+group in the help overlay and the stored marker all follow from that.
+There is no constant to remember to bump.
 
 ## Incidents (don't re-debug these)
 

@@ -146,7 +146,7 @@ final class PanelController {
                 return true
             }
             if self.model.showHelp {
-                self.model.showHelp = false
+                self.model.closeHelp()
                 return true
             }
             return false

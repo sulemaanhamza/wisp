@@ -2,6 +2,9 @@ import SwiftUI
 
 struct HelpOverlay: View {
     let theme: Theme
+    /// Things this user hasn't been shown, pinned above everything
+    /// else. Empty once they've looked.
+    var newTips: [Tip] = []
     let onDismiss: () -> Void
 
     var body: some View {
@@ -18,6 +21,13 @@ struct HelpOverlay: View {
                 .onTapGesture { onDismiss() }
 
             VStack(alignment: .leading, spacing: 18) {
+                if !newTips.isEmpty {
+                    section(
+                        "New",
+                        items: newTips.map { ($0.keys, $0.what) },
+                        accent: true
+                    )
+                }
                 section("Open / dismiss", items: [
                     ("⌥Space", "summon or dismiss the panel"),
                     ("⌘F", "find in your notes (↵ / ⇧↵ to step)"),
@@ -64,11 +74,13 @@ struct HelpOverlay: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, items: [(String, String)]) -> some View {
+    private func section(
+        _ title: String, items: [(String, String)], accent: Bool = false
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(accent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
                 .textCase(.uppercase)
                 .tracking(0.6)
                 .padding(.bottom, 2)

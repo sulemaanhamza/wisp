@@ -37,6 +37,12 @@ final class EditorModel: ObservableObject {
     @Published var showHelp: Bool = false
     @Published var showHotKeyCapture: Bool = false
     @Published var showFirstRunHint: Bool = false
+    /// Tips this user hasn't been shown, fixed for the session so the
+    /// "New" group doesn't vanish out from under them the moment the
+    /// dot is marked seen.
+    @Published private(set) var newTips: [Tip] = []
+    /// Drives the dot on the `?`. Cleared as soon as they look.
+    @Published private(set) var hasUnseenTips: Bool = false
     @Published var showTour: Bool = false
     /// Set to true when the user clicks "Later" on the update overlay.
     /// Reset to false on every panel-open so the overlay reappears on
@@ -186,7 +192,20 @@ final class EditorModel: ObservableObject {
         if let saved = HotKey.loadFromDefaults() {
             hotKey = saved
         }
-        showFirstRunHint = !UserDefaults.standard.bool(forKey: "HasSeenFirstRunTour")
+        let hasSeenTour = UserDefaults.standard.bool(forKey: "HasSeenFirstRunTour")
+        showFirstRunHint = !hasSeenTour
+        if hasSeenTour {
+            // Someone who updated into this. Anything they've not been
+            // shown gets flagged on the `?`.
+            newTips = Tips.unseen(
+                since: UserDefaults.standard.string(forKey: Tips.seenKey)
+            )
+            hasUnseenTips = !newTips.isEmpty
+        } else {
+            // Fresh install: the tour covers the basics and the help
+            // overlay is already current, so nothing here is "new".
+            UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
+        }
         let url = StorageLocation.currentURL
         if let loaded = try? String(contentsOf: url, encoding: .utf8) {
             text = loaded
@@ -399,6 +418,20 @@ final class EditorModel: ObservableObject {
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
     }
 
+    /// Opening the help is what marks tips seen — that's the moment
+    /// they're in front of the user. `newTips` is deliberately left
+    /// alone so the group stays on screen for this session.
+    func openHelp() {
+        showHelp = true
+        guard hasUnseenTips else { return }
+        hasUnseenTips = false
+        UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
+    }
+
+    func closeHelp() {
+        showHelp = false
+    }
+
     func openTour() {
         showTour = true
     }
@@ -506,9 +539,14 @@ struct EditorView: View {
                     onCycleTheme: { model.cycleTheme() },
                     updateState: updater.state,
                     onUpdateClick: { updater.handleClick() },
+                    hasUnseenTips: model.hasUnseenTips,
                     onHelpClick: {
                         withAnimation(.easeInOut(duration: 0.18)) {
-                            model.showHelp.toggle()
+                            if model.showHelp {
+                                model.closeHelp()
+                            } else {
+                                model.openHelp()
+                            }
                         }
                     }
                 )
@@ -533,9 +571,9 @@ struct EditorView: View {
                 .transition(.opacity)
             }
             if model.showHelp {
-                HelpOverlay(theme: model.theme) {
+                HelpOverlay(theme: model.theme, newTips: model.newTips) {
                     withAnimation(.easeInOut(duration: 0.18)) {
-                        model.showHelp = false
+                        model.closeHelp()
                     }
                 }
                 .transition(.opacity)

@@ -9,6 +9,8 @@ struct BottomBar: View {
     let onCycleTheme: () -> Void
     let updateState: UpdateState
     let onUpdateClick: () -> Void
+    /// Something in the help overlay is new to this user.
+    let hasUnseenTips: Bool
     let onHelpClick: () -> Void
 
     var body: some View {
@@ -27,11 +29,26 @@ struct BottomBar: View {
                     .font(.system(size: 11, weight: .regular))
                     .frame(width: 24, height: 20)
                     .contentShape(Rectangle())
+                    .overlay(alignment: .topTrailing) {
+                        // Static, not pulsing like the first-run dot:
+                        // this sits in a quiet footer next to a word
+                        // count and only has to be noticed, not chased.
+                        if hasUnseenTips {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 5, height: 5)
+                                .offset(x: -1, y: 2)
+                        }
+                    }
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("Keyboard shortcuts and formatting")
-            .accessibilityLabel("Keyboard shortcuts and formatting")
+            .help(hasUnseenTips
+                  ? "Shortcuts and formatting — something new in here"
+                  : "Keyboard shortcuts and formatting")
+            .accessibilityLabel(hasUnseenTips
+                  ? "Keyboard shortcuts and formatting, new items"
+                  : "Keyboard shortcuts and formatting")
             Button(action: onCycleTheme) {
                 Image(systemName: themeIconName)
                     .font(.system(size: 11, weight: .regular))

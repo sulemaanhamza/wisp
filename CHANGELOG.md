@@ -23,6 +23,7 @@ Notable changes to Wisp. Newest first.
 - **Archive to Inbox (⇧⌘↩).** Files the current note into `Inbox/2026-08-30-142200.md` next to your scratchpad and leaves you a clean pad for the next thought. ([#6](https://github.com/sulemaanhamza/wisp/issues/6))
 - **Transparency.** Right-click the menu bar icon → Transparency → Off, Subtle, or Strong, for how much of the desktop shows through the panel. The light theme is translucent now too — it was always opaque before — so if you prefer the solid white panel, set it to Off. ([#1](https://github.com/sulemaanhamza/wisp/issues/1))
 - **Intel Macs are supported.** Releases now ship a universal binary. ([#8](https://github.com/sulemaanhamza/wisp/issues/8))
+- **A quiet dot on the `?` when there's something you haven't seen.** Wisp's features are invisible by design — unguessable syntax and shortcuts — so release notes you read once aren't much help. A small accent dot now appears beside the `?` in the footer whenever the tip list has moved on since you last looked, and the help overlay opens with a **New** group at the top. Look once and it's gone. People who updated in also get the older entries they may never have found, like ⌘F.
 - Monospace for `inline code` and ``` fenced blocks.
 - Reveal in Finder submenu: scratchpad, Inbox, or version history.
 - Continuous integration on macOS 14 and 15, and contributor docs — `CONTRIBUTING.md`, `ARCHITECTURE.md`, this changelog.

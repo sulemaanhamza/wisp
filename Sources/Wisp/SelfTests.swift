@@ -690,6 +690,38 @@ enum SelfTests {
         check("restyle: plain prose gets no code marks",
               runs(.wispCodeBlock, in: plain) == 0 && runs(.backgroundColor, in: plain) == 0)
 
+        // MARK: - Tips
+
+        check("tips: numeric compare, not lexicographic",
+              Tips.isOlder("0.1.9", "0.1.10"))
+        check("tips: equal versions aren't older",
+              !Tips.isOlder("0.1.42", "0.1.42"))
+        check("tips: newer isn't older",
+              !Tips.isOlder("0.1.42", "0.1.41"))
+        check("tips: version is the newest entry in the list",
+              Tips.all.allSatisfy { !Tips.isOlder(Tips.version, $0.version) })
+        check("tips: version matches some tip",
+              Tips.all.contains { $0.version == Tips.version })
+
+        check("tips: no marker shows everything",
+              Tips.unseen(since: nil).count == min(Tips.all.count, 6))
+        check("tips: current marker shows nothing",
+              Tips.unseen(since: Tips.version).isEmpty)
+        check("tips: a marker from the future shows nothing",
+              Tips.unseen(since: "99.0.0").isEmpty)
+        check("tips: an old marker shows the newest ones",
+              Tips.unseen(since: "0.1.41").allSatisfy { $0.version == "0.1.42" })
+        check("tips: an old marker doesn't re-show what they've seen",
+              !Tips.unseen(since: "0.1.41").contains { $0.version == "0.1.41" })
+        check("tips: a very old marker shows the lot",
+              Tips.unseen(since: "0.1.20").count == min(Tips.all.count, 6))
+        check("tips: the limit is respected",
+              Tips.unseen(since: nil, limit: 2).count == 2)
+        check("tips: every tip says something",
+              Tips.all.allSatisfy { !$0.keys.isEmpty && !$0.what.isEmpty })
+        check("tips: ids are unique",
+              Set(Tips.all.map(\.id)).count == Tips.all.count)
+
         // MARK: - Summary
 
         let total = passed + failures.count
