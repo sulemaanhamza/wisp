@@ -7,6 +7,15 @@ enum MainMenuBuilder {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        let archiveItem = NSMenuItem(
+            title: "Archive to Inbox",
+            action: #selector(AppDelegate.archiveToInbox(_:)),
+            keyEquivalent: "\r"
+        )
+        archiveItem.keyEquivalentModifierMask = [.command, .shift]
+        archiveItem.target = target
+        appMenu.addItem(archiveItem)
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
             withTitle: "Quit Wisp",
             action: #selector(NSApplication.terminate(_:)),

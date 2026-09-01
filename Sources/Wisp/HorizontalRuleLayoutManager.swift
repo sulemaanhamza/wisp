@@ -15,6 +15,41 @@ final class HorizontalRuleLayoutManager: NSLayoutManager {
     /// every theme flip via applyPalette.
     var ruleColor: NSColor = .secondaryLabelColor
 
+    /// Ground painted behind fenced code blocks. Set alongside
+    /// `ruleColor`; nil paints nothing.
+    var codeBlockColor: NSColor?
+
+    /// Paint one panel per fenced block, spanning the line fragment's
+    /// full width so it tracks the window like the rule above. An
+    /// attribute-only `.backgroundColor` would stop at the end of each
+    /// line and leave a ragged right edge.
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        if let color = codeBlockColor,
+           let storage = textStorage,
+           let context = NSGraphicsContext.current?.cgContext {
+            let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+            storage.enumerateAttribute(.wispCodeBlock, in: charRange) { value, range, _ in
+                guard value != nil else { return }
+                let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                guard glyphs.length > 0 else { return }
+                var union = CGRect.null
+                enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, _, _ in
+                    union = union.isNull ? rect : union.union(rect)
+                }
+                guard !union.isNull else { return }
+                let panel = union.offsetBy(dx: origin.x, dy: origin.y)
+                context.saveGState()
+                context.setFillColor(color.cgColor)
+                context.addPath(CGPath(
+                    roundedRect: panel, cornerWidth: 5, cornerHeight: 5, transform: nil
+                ))
+                context.fillPath()
+                context.restoreGState()
+            }
+        }
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
 

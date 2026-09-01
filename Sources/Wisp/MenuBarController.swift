@@ -2,43 +2,34 @@ import AppKit
 
 @MainActor
 final class MenuBarController: NSObject {
-    private let statusItem: NSStatusItem
-    private let onClick: () -> Void
-    private let currentFontFace: () -> FontFace
-    private let onSelectFontFace: (FontFace) -> Void
-    private let currentHotKey: () -> HotKey
-    private let onSetHotKey: () -> Void
-    private let onShowAbout: () -> Void
-    private let currentLaunchAtLogin: () -> Bool
-    private let onToggleLaunchAtLogin: () -> Void
-    private let isStorageCustom: () -> Bool
-    private let onPickStorageLocation: () -> Void
-    private let onResetStorageLocation: () -> Void
+    /// Everything the menu can read or do. A struct rather than a
+    /// dozen-plus init parameters — the menu kept growing and the call
+    /// site had become impossible to read.
+    struct Actions {
+        var onOpen: () -> Void
+        var onArchiveToInbox: () -> Void
+        var currentFontFace: () -> FontFace
+        var onSelectFontFace: (FontFace) -> Void
+        var currentTransparency: () -> Transparency
+        var onSelectTransparency: (Transparency) -> Void
+        var currentHotKey: () -> HotKey
+        var onSetHotKey: () -> Void
+        var onShowAbout: () -> Void
+        var currentLaunchAtLogin: () -> Bool
+        var onToggleLaunchAtLogin: () -> Void
+        var isStorageCustom: () -> Bool
+        var onPickStorageLocation: () -> Void
+        var onResetStorageLocation: () -> Void
+        var onRevealScratchpad: () -> Void
+        var onRevealInbox: () -> Void
+        var onRevealHistory: () -> Void
+    }
 
-    init(
-        onClick: @escaping () -> Void,
-        currentFontFace: @escaping () -> FontFace,
-        onSelectFontFace: @escaping (FontFace) -> Void,
-        currentHotKey: @escaping () -> HotKey,
-        onSetHotKey: @escaping () -> Void,
-        onShowAbout: @escaping () -> Void,
-        currentLaunchAtLogin: @escaping () -> Bool,
-        onToggleLaunchAtLogin: @escaping () -> Void,
-        isStorageCustom: @escaping () -> Bool,
-        onPickStorageLocation: @escaping () -> Void,
-        onResetStorageLocation: @escaping () -> Void
-    ) {
-        self.onClick = onClick
-        self.currentFontFace = currentFontFace
-        self.onSelectFontFace = onSelectFontFace
-        self.currentHotKey = currentHotKey
-        self.onSetHotKey = onSetHotKey
-        self.onShowAbout = onShowAbout
-        self.currentLaunchAtLogin = currentLaunchAtLogin
-        self.onToggleLaunchAtLogin = onToggleLaunchAtLogin
-        self.isStorageCustom = isStorageCustom
-        self.onPickStorageLocation = onPickStorageLocation
-        self.onResetStorageLocation = onResetStorageLocation
+    private let statusItem: NSStatusItem
+    private let actions: Actions
+
+    init(actions: Actions) {
+        self.actions = actions
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -60,117 +51,86 @@ final class MenuBarController: NSObject {
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
             showContextMenu()
         } else {
-            onClick()
+            actions.onOpen()
         }
     }
 
-    @objc private func openFromMenu() {
-        onClick()
-    }
+    @objc private func openFromMenu() { actions.onOpen() }
+    @objc private func handleArchive() { actions.onArchiveToInbox() }
+    @objc private func handleSetHotKey() { actions.onSetHotKey() }
+    @objc private func handleShowAbout() { actions.onShowAbout() }
+    @objc private func handleToggleLaunchAtLogin() { actions.onToggleLaunchAtLogin() }
+    @objc private func handlePickStorageLocation() { actions.onPickStorageLocation() }
+    @objc private func handleResetStorageLocation() { actions.onResetStorageLocation() }
+    @objc private func handleRevealScratchpad() { actions.onRevealScratchpad() }
+    @objc private func handleRevealInbox() { actions.onRevealInbox() }
+    @objc private func handleRevealHistory() { actions.onRevealHistory() }
 
     @objc private func selectFontFace(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let face = FontFace(rawValue: raw)
         else { return }
-        onSelectFontFace(face)
+        actions.onSelectFontFace(face)
     }
 
-    @objc private func handleSetHotKey() {
-        onSetHotKey()
+    @objc private func selectTransparency(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let level = Transparency(rawValue: raw)
+        else { return }
+        actions.onSelectTransparency(level)
     }
 
-    @objc private func handleShowAbout() {
-        onShowAbout()
-    }
-
-    @objc private func handleToggleLaunchAtLogin() {
-        onToggleLaunchAtLogin()
-    }
-
-    @objc private func handlePickStorageLocation() {
-        onPickStorageLocation()
-    }
-
-    @objc private func handleResetStorageLocation() {
-        onResetStorageLocation()
-    }
-
+    /// Built fresh on every right-click, so checkmarks and the shortcut
+    /// label are always current without any menu-delegate bookkeeping.
     private func showContextMenu() {
         let menu = NSMenu()
 
-        let openItem = NSMenuItem(
-            title: "Open Wisp",
-            action: #selector(openFromMenu),
-            keyEquivalent: ""
-        )
-        openItem.target = self
-        menu.addItem(openItem)
+        menu.addItem(item("Open Wisp", #selector(openFromMenu)))
+
+        let archive = item("Archive to Inbox", #selector(handleArchive), key: "\r")
+        archive.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(archive)
 
         menu.addItem(NSMenuItem.separator())
 
-        // Font submenu — current face shown with a checkmark.
-        let fontMenuItem = NSMenuItem(title: "Font", action: nil, keyEquivalent: "")
-        let fontMenu = NSMenu(title: "Font")
-        let active = currentFontFace()
-        for face in FontFace.allCases {
-            let item = NSMenuItem(
-                title: face.displayName,
-                action: #selector(selectFontFace(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = face.rawValue
-            item.state = (face == active) ? .on : .off
-            fontMenu.addItem(item)
-        }
-        fontMenuItem.submenu = fontMenu
-        menu.addItem(fontMenuItem)
+        menu.addItem(submenu("Font", options: FontFace.allCases,
+                             title: { $0.displayName },
+                             value: { $0.rawValue },
+                             isOn: { $0 == self.actions.currentFontFace() },
+                             action: #selector(selectFontFace(_:))))
 
-        let hotKeyItem = NSMenuItem(
-            title: "Set Shortcut…  (\(currentHotKey().displayString))",
-            action: #selector(handleSetHotKey),
-            keyEquivalent: ""
-        )
-        hotKeyItem.target = self
-        menu.addItem(hotKeyItem)
+        menu.addItem(submenu("Transparency", options: Transparency.allCases,
+                             title: { $0.displayName },
+                             value: { $0.rawValue },
+                             isOn: { $0 == self.actions.currentTransparency() },
+                             action: #selector(selectTransparency(_:))))
 
-        let launchItem = NSMenuItem(
-            title: "Launch at Login",
-            action: #selector(handleToggleLaunchAtLogin),
-            keyEquivalent: ""
-        )
-        launchItem.target = self
-        launchItem.state = currentLaunchAtLogin() ? .on : .off
-        menu.addItem(launchItem)
+        menu.addItem(item(
+            "Set Shortcut…  (\(actions.currentHotKey().displayString))",
+            #selector(handleSetHotKey)
+        ))
 
-        let storageItem = NSMenuItem(
-            title: "Storage Location…",
-            action: #selector(handlePickStorageLocation),
-            keyEquivalent: ""
-        )
-        storageItem.target = self
-        menu.addItem(storageItem)
+        let launch = item("Launch at Login", #selector(handleToggleLaunchAtLogin))
+        launch.state = actions.currentLaunchAtLogin() ? .on : .off
+        menu.addItem(launch)
 
-        if isStorageCustom() {
-            let resetItem = NSMenuItem(
-                title: "Reset Storage Location",
-                action: #selector(handleResetStorageLocation),
-                keyEquivalent: ""
-            )
-            resetItem.target = self
-            menu.addItem(resetItem)
+        menu.addItem(item("Storage Location…", #selector(handlePickStorageLocation)))
+        if actions.isStorageCustom() {
+            menu.addItem(item("Reset Storage Location", #selector(handleResetStorageLocation)))
         }
 
-        let aboutItem = NSMenuItem(
-            title: "About Wisp",
-            action: #selector(handleShowAbout),
-            keyEquivalent: ""
-        )
-        aboutItem.target = self
-        menu.addItem(aboutItem)
+        // One submenu instead of three top-level "Reveal …" items.
+        let revealItem = NSMenuItem(title: "Reveal in Finder", action: nil, keyEquivalent: "")
+        let reveal = NSMenu(title: "Reveal in Finder")
+        reveal.addItem(item("Scratchpad", #selector(handleRevealScratchpad)))
+        reveal.addItem(item("Inbox", #selector(handleRevealInbox)))
+        reveal.addItem(item("History", #selector(handleRevealHistory)))
+        revealItem.submenu = reveal
+        menu.addItem(revealItem)
+
+        menu.addItem(item("About Wisp", #selector(handleShowAbout)))
 
         menu.addItem(NSMenuItem.separator())
-
         menu.addItem(NSMenuItem(
             title: "Quit Wisp",
             action: #selector(NSApplication.terminate(_:)),
@@ -180,5 +140,31 @@ final class MenuBarController: NSObject {
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+    }
+
+    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = self
+        return item
+    }
+
+    private func submenu<T>(
+        _ title: String,
+        options: [T],
+        title titleFor: (T) -> String,
+        value: (T) -> String,
+        isOn: (T) -> Bool,
+        action: Selector
+    ) -> NSMenuItem {
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let menu = NSMenu(title: title)
+        for option in options {
+            let child = item(titleFor(option), action)
+            child.representedObject = value(option)
+            child.state = isOn(option) ? .on : .off
+            menu.addItem(child)
+        }
+        parent.submenu = menu
+        return parent
     }
 }

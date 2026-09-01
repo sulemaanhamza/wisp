@@ -24,3 +24,6 @@ Icon?
 build/
 dist/
 *.app
+
+# Universal build slices
+.build-universal/

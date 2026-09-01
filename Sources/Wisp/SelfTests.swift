@@ -15,6 +15,11 @@ import Carbon.HIToolbox
 /// touches NSTextView, Carbon hotkey registration, or the panel needs
 /// integration / UI testing — out of scope here.
 enum SelfTests {
+    // @MainActor so the suite can exercise the AppKit-touching pure
+    // functions too — the styling passes are isolated by way of
+    // NSViewRepresentable. main.swift's top-level code is already on
+    // the main actor, so the call site needs nothing.
+    @MainActor
     static func run() -> Never {
         var passed = 0
         var failures: [String] = []
@@ -410,6 +415,312 @@ enum SelfTests {
         let capped = (1...10).map { "- item \($0)" }.joined(separator: "\n")
         check("notes: capped at maxHighlights",
               ReleaseNotes.highlights(from: capped).count == ReleaseNotes.maxHighlights)
+
+        // MARK: - Snapshots: big-shrink guard
+
+        check("shrink: full → empty is drastic",
+              Snapshots.isDrasticShrink(old: String(repeating: "a", count: 100), new: ""))
+        check("shrink: lost more than half is drastic",
+              Snapshots.isDrasticShrink(
+                old: String(repeating: "a", count: 100),
+                new: String(repeating: "a", count: 40)))
+        check("shrink: small trim is not drastic",
+              !Snapshots.isDrasticShrink(
+                old: String(repeating: "a", count: 100),
+                new: String(repeating: "a", count: 80)))
+        check("shrink: tiny old content never drastic",
+              !Snapshots.isDrasticShrink(old: "short", new: ""))
+        check("shrink: growth is not a shrink",
+              !Snapshots.isDrasticShrink(old: String(repeating: "a", count: 100),
+                                         new: String(repeating: "a", count: 200)))
+
+        // MARK: - Snapshots: prune ring
+
+        let snapNames = (1...25).map { String(format: "scratchpad-2026-06-13-%06d.md", $0) }
+        let toPrune = Snapshots.filesToPrune(snapNames, keep: 20)
+        check("prune: keeps newest 20 of 25", toPrune.count == 5)
+        check("prune: drops the oldest",
+              toPrune.first == "scratchpad-2026-06-13-000001.md")
+        check("prune: nothing to do under the cap",
+              Snapshots.filesToPrune(snapNames, keep: 30).isEmpty)
+        check("prune: ignores non-snapshot files",
+              Snapshots.filesToPrune(["scratchpad.md", "notes.txt", ".DS_Store"], keep: 1).isEmpty)
+
+        // MARK: - Snapshots: filename
+
+        let snapName = Snapshots.filename(at: Date(timeIntervalSince1970: 1_700_000_000))
+        check("snapshot filename prefix", snapName.hasPrefix("scratchpad-"))
+        check("snapshot filename suffix", snapName.hasSuffix(".md"))
+        check("snapshot filename is sortable by time",
+              Snapshots.filename(at: Date(timeIntervalSince1970: 1_000))
+                < Snapshots.filename(at: Date(timeIntervalSince1970: 2_000)))
+
+        // MARK: - Reload decision (the save/reload revert)
+
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let t1 = Date(timeIntervalSince1970: 2_000)
+        check("reload: first read with no baseline",
+              EditorModel.decideReload(
+                fileMTime: t0, lastLoadedMTime: nil,
+                text: "", lastSavedText: "") == .reload)
+        check("reload: our own write is not newer",
+              EditorModel.decideReload(
+                fileMTime: t0, lastLoadedMTime: t0,
+                text: "a", lastSavedText: "a") == .skipNotNewer)
+        check("reload: someone else's write is picked up",
+              EditorModel.decideReload(
+                fileMTime: t1, lastLoadedMTime: t0,
+                text: "a", lastSavedText: "a") == .reload)
+        check("reload: never discards unsaved edits",
+              EditorModel.decideReload(
+                fileMTime: t1, lastLoadedMTime: t0,
+                text: "typed but not saved", lastSavedText: "a") == .skipUnsavedEdits)
+        check("reload: unsaved edits win even without a baseline",
+              EditorModel.decideReload(
+                fileMTime: t1, lastLoadedMTime: nil,
+                text: "typed", lastSavedText: "") == .skipUnsavedEdits)
+
+        // MARK: - HotKey binding rules
+
+        check("hotkey: shift alone is not enough",
+              !HotKey.hasRequiredModifier(UInt32(shiftKey)))
+        check("hotkey: nothing is not enough",
+              !HotKey.hasRequiredModifier(0))
+        check("hotkey: option counts", HotKey.hasRequiredModifier(UInt32(optionKey)))
+        check("hotkey: command counts", HotKey.hasRequiredModifier(UInt32(cmdKey)))
+        check("hotkey: control counts", HotKey.hasRequiredModifier(UInt32(controlKey)))
+        check("hotkey: shift plus option counts",
+              HotKey.hasRequiredModifier(UInt32(shiftKey) | UInt32(optionKey)))
+
+        check("hotkey: ⌘C is reserved",
+              HotKey.reservedReason(
+                for: HotKey(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey))) != nil)
+        check("hotkey: ⌘Q is reserved",
+              HotKey.reservedReason(
+                for: HotKey(keyCode: UInt32(kVK_ANSI_Q), modifiers: UInt32(cmdKey))) != nil)
+        check("hotkey: ⌘Space is reserved",
+              HotKey.reservedReason(
+                for: HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey))) != nil)
+        check("hotkey: ⌥⌘C is fine",
+              HotKey.reservedReason(
+                for: HotKey(keyCode: UInt32(kVK_ANSI_C),
+                            modifiers: UInt32(cmdKey) | UInt32(optionKey))) == nil)
+        check("hotkey: the default ⌥Space is fine",
+              HotKey.reservedReason(for: .default) == nil)
+
+        // MARK: - StorageLocation: iCloud placeholders
+
+        check("placeholder name for scratchpad.md",
+              StorageLocation.placeholderFilename(for: "scratchpad.md")
+                == ".scratchpad.md.icloud")
+        check("placeholder URL is hidden in the folder",
+              StorageLocation.placeholderURL(in: URL(fileURLWithPath: "/tmp/wisp-probe"))
+                .lastPathComponent == ".scratchpad.md.icloud")
+
+        // MARK: - Updater: asset digest parsing
+
+        let goodDigest = "sha256:" + String(repeating: "a", count: 64)
+        check("digest: sha256 field parses",
+              Updater.sha256Hex(fromDigestField: goodDigest)
+                == String(repeating: "a", count: 64))
+        check("digest: nil field → nil",
+              Updater.sha256Hex(fromDigestField: nil) == nil)
+        check("digest: wrong algorithm → nil",
+              Updater.sha256Hex(fromDigestField: "md5:" + String(repeating: "a", count: 32)) == nil)
+        check("digest: short hex → nil",
+              Updater.sha256Hex(fromDigestField: "sha256:abc") == nil)
+        check("digest: non-hex → nil",
+              Updater.sha256Hex(fromDigestField: "sha256:" + String(repeating: "z", count: 64)) == nil)
+        check("buttonAction(.failed) = openReleases",
+              Updater.buttonAction(for: .failed(version: "0.1.41")) == .openReleases)
+
+        // MARK: - Checkboxes
+
+        check("checkbox: unticked box found",
+              Checkbox.boxRange(in: "- [ ] milk") == NSRange(location: 2, length: 3))
+        check("checkbox: ticked box found",
+              Checkbox.boxRange(in: "- [x] milk") == NSRange(location: 2, length: 3))
+        check("checkbox: capital X counts",
+              Checkbox.boxRange(in: "- [X] milk") != nil)
+        check("checkbox: indented item found",
+              Checkbox.boxRange(in: "    - [ ] milk") == NSRange(location: 6, length: 3))
+        check("checkbox: asterisk bullet counts",
+              Checkbox.boxRange(in: "* [ ] milk") != nil)
+        check("checkbox: plus bullet counts",
+              Checkbox.boxRange(in: "+ [ ] milk") != nil)
+        check("checkbox: plain bullet is not a box",
+              Checkbox.boxRange(in: "- milk") == nil)
+        check("checkbox: bare brackets are not a box",
+              Checkbox.boxRange(in: "[ ] milk") == nil)
+        check("checkbox: other letters are not a state",
+              Checkbox.boxRange(in: "- [y] milk") == nil)
+        check("checkbox: prose is not a box",
+              Checkbox.boxRange(in: "see - [ ] later") == nil)
+        check("checkbox: empty line is not a box",
+              Checkbox.boxRange(in: "") == nil)
+        check("checkbox: truncated line is not a box",
+              Checkbox.boxRange(in: "- [") == nil)
+
+        check("checkbox: isChecked true", Checkbox.isChecked("- [x] milk"))
+        check("checkbox: isChecked false", !Checkbox.isChecked("- [ ] milk"))
+        check("checkbox: isChecked on a non-item", !Checkbox.isChecked("milk"))
+
+        check("checkbox: toggling ticks",
+              Checkbox.toggling("- [ ] milk") == "- [x] milk")
+        check("checkbox: toggling unticks",
+              Checkbox.toggling("- [x] milk") == "- [ ] milk")
+        check("checkbox: toggling capital X unticks",
+              Checkbox.toggling("- [X] milk") == "- [ ] milk")
+        check("checkbox: toggling keeps indentation",
+              Checkbox.toggling("  - [ ] milk") == "  - [x] milk")
+        check("checkbox: nothing to toggle",
+              Checkbox.toggling("- milk") == nil)
+
+        // MARK: - SmartEditing: task list continuation
+
+        check("list '- [ ] foo' → '- [ ] '",
+              SmartEditing.nextListMarker(for: "- [ ] foo") == "- [ ] ")
+        check("list '- [x] foo' → '- [ ] ' (new items start unticked)",
+              SmartEditing.nextListMarker(for: "- [x] foo") == "- [ ] ")
+        check("list '* [ ] foo' keeps its bullet",
+              SmartEditing.nextListMarker(for: "* [ ] foo") == "* [ ] ")
+        check("list '- [ ] ' (empty) exits the list",
+              SmartEditing.nextListMarker(for: "- [ ] ") == "")
+        check("list '- foo' still plain",
+              SmartEditing.nextListMarker(for: "- foo") == "- ")
+
+        // MARK: - Inbox
+
+        check("inbox: whitespace isn't worth filing",
+              !Inbox.isWorthArchiving("   \n\t \n"))
+        check("inbox: empty isn't worth filing", !Inbox.isWorthArchiving(""))
+        check("inbox: a thought is worth filing", Inbox.isWorthArchiving("call the bank"))
+        let inboxName = Inbox.filename(at: Date(timeIntervalSince1970: 1_700_000_000))
+        check("inbox: filename ends .md", inboxName.hasSuffix(".md"))
+        check("inbox: filename sorts by time",
+              Inbox.filename(at: Date(timeIntervalSince1970: 1_000))
+                < Inbox.filename(at: Date(timeIntervalSince1970: 2_000)))
+
+        // MARK: - Transparency
+
+        check("transparency: off is fully opaque in both themes",
+              Transparency.off.tintAlpha(for: .dark) == 1.0
+                && Transparency.off.tintAlpha(for: .light) == 1.0)
+        // The bug this pins: light/subtle was 0.92 over a near-opaque
+        // material, so every setting looked identical. Each step has to
+        // be far enough from its neighbour to actually see.
+        let minStep: CGFloat = 0.15
+        for theme in Theme.allCases {
+            check("transparency: off → subtle is visible (\(theme.rawValue))",
+                  Transparency.off.tintAlpha(for: theme)
+                    - Transparency.subtle.tintAlpha(for: theme) >= minStep)
+            check("transparency: subtle → strong is visible (\(theme.rawValue))",
+                  Transparency.subtle.tintAlpha(for: theme)
+                    - Transparency.strong.tintAlpha(for: theme) >= minStep)
+            check("transparency: strong still leaves a readable ground (\(theme.rawValue))",
+                  Transparency.strong.tintAlpha(for: theme) >= 0.2)
+            check("transparency: off paints a solid tint (\(theme.rawValue))",
+                  Transparency.off.tintColor(for: theme).alphaComponent == 1.0)
+            check("transparency: off skips the blur view (\(theme.rawValue))",
+                  !Chrome.for(theme, transparency: .off).usesVisualEffect)
+            check("transparency: subtle uses the blur view (\(theme.rawValue))",
+                  Chrome.for(theme, transparency: .subtle).usesVisualEffect)
+            check("transparency: both themes use a translucent material (\(theme.rawValue))",
+                  Chrome.for(theme, transparency: .subtle).material == .fullScreenUI)
+        }
+        // whiteComponent, not brightnessComponent: these are grayscale
+        // colors and asking an NSColor for a component its colorspace
+        // doesn't have raises.
+        check("transparency: dark off isn't pure black",
+              Transparency.off.tintColor(for: .dark).whiteComponent > 0.0)
+        check("transparency: raw values persist",
+              Transparency(rawValue: "subtle") == .subtle)
+
+        // MARK: - Code background
+
+        for theme in Theme.allCases {
+            let off = Palette.codeBackground(for: theme, transparency: .off).alphaComponent
+            let subtle = Palette.codeBackground(for: theme, transparency: .subtle).alphaComponent
+            let strong = Palette.codeBackground(for: theme, transparency: .strong).alphaComponent
+            check("code bg: lifts as the panel gets more transparent (\(theme.rawValue))",
+                  off < subtle && subtle < strong)
+            check("code bg: stays an overlay, never a solid block (\(theme.rawValue))",
+                  strong < 0.25)
+        }
+        check("code bg: dark theme lightens the ground",
+              Palette.codeBackground(for: .dark, transparency: .subtle).whiteComponent > 0.5)
+        check("code bg: light theme darkens the ground",
+              Palette.codeBackground(for: .light, transparency: .subtle).whiteComponent < 0.5)
+
+        // MARK: - Restyle clears what it applies
+
+        let storage = NSTextStorage(string: "- [x] done\n\n```\ncode\n```\n\nsee `inline` here\n")
+        func runs(_ key: NSAttributedString.Key, in storage: NSTextStorage) -> Int {
+            var found = 0
+            storage.enumerateAttribute(
+                key, in: NSRange(location: 0, length: storage.length)
+            ) { value, _, _ in
+                if value != nil { found += 1 }
+            }
+            return found
+        }
+        MinimalTextEditor.restyle(
+            storage, face: .charter, size: .medium, theme: .dark, transparency: .subtle
+        )
+        check("restyle: a ticked item is struck through",
+              runs(.strikethroughStyle, in: storage) > 0)
+        check("restyle: a fenced block is marked for the layout manager",
+              runs(.wispCodeBlock, in: storage) > 0)
+        check("restyle: an inline span gets a ground",
+              runs(.backgroundColor, in: storage) > 0)
+
+        // Untick the box and drop the fence; a second pass has to take
+        // the old attributes away, not just add new ones.
+        storage.replaceCharacters(in: NSRange(location: 3, length: 1), with: " ")
+        MinimalTextEditor.restyle(
+            storage, face: .charter, size: .medium, theme: .dark, transparency: .subtle
+        )
+        check("restyle: unticking clears the strikethrough",
+              runs(.strikethroughStyle, in: storage) == 0)
+
+        let plain = NSTextStorage(string: "just words, nothing special\n")
+        MinimalTextEditor.restyle(
+            plain, face: .charter, size: .medium, theme: .light, transparency: .off
+        )
+        check("restyle: plain prose gets no code marks",
+              runs(.wispCodeBlock, in: plain) == 0 && runs(.backgroundColor, in: plain) == 0)
+
+        // MARK: - Tips
+
+        check("tips: numeric compare, not lexicographic",
+              Tips.isOlder("0.1.9", "0.1.10"))
+        check("tips: equal versions aren't older",
+              !Tips.isOlder("0.1.42", "0.1.42"))
+        check("tips: newer isn't older",
+              !Tips.isOlder("0.1.42", "0.1.41"))
+        check("tips: version is the newest entry in the list",
+              Tips.all.allSatisfy { !Tips.isOlder(Tips.version, $0.version) })
+        check("tips: version matches some tip",
+              Tips.all.contains { $0.version == Tips.version })
+
+        check("tips: no marker shows everything",
+              Tips.unseen(since: nil).count == min(Tips.all.count, 6))
+        check("tips: current marker shows nothing",
+              Tips.unseen(since: Tips.version).isEmpty)
+        check("tips: a marker from the future shows nothing",
+              Tips.unseen(since: "99.0.0").isEmpty)
+        check("tips: an old marker shows the newest ones",
+              Tips.unseen(since: "0.1.41").allSatisfy { $0.version == "0.1.42" })
+        check("tips: an old marker doesn't re-show what they've seen",
+              !Tips.unseen(since: "0.1.41").contains { $0.version == "0.1.41" })
+        check("tips: a very old marker shows the lot",
+              Tips.unseen(since: "0.1.20").count == min(Tips.all.count, 6))
+        check("tips: the limit is respected",
+              Tips.unseen(since: nil, limit: 2).count == 2)
+        check("tips: every tip says something",
+              Tips.all.allSatisfy { !$0.keys.isEmpty && !$0.what.isEmpty })
+        check("tips: ids are unique",
+              Set(Tips.all.map(\.id)).count == Tips.all.count)
 
         // MARK: - Summary
 

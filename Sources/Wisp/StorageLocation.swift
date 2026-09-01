@@ -52,6 +52,60 @@ enum StorageLocation {
         folder.appendingPathComponent(scratchpadFilename)
     }
 
+    // MARK: - iCloud placeholders
+
+    /// iCloud stands a hidden `.<name>.icloud` stub in for a file it
+    /// hasn't downloaded to this Mac yet. Pure so it's testable.
+    static func placeholderFilename(for filename: String) -> String {
+        ".\(filename).icloud"
+    }
+
+    static func placeholderURL(in folder: URL) -> URL {
+        folder.appendingPathComponent(placeholderFilename(for: scratchpadFilename))
+    }
+
+    /// True when a folder already holds a scratchpad — the real file,
+    /// or a stub standing in for one still up in the cloud. Both count:
+    /// writing over the stub is how a second Mac silently replaces the
+    /// note it was about to receive.
+    static func hasScratchpad(in folder: URL) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: scratchpadURL(in: folder).path)
+            || fm.fileExists(atPath: placeholderURL(in: folder).path)
+    }
+
+    /// True when the stub is all there is.
+    static func hasUndownloadedScratchpad(in folder: URL) -> Bool {
+        let fm = FileManager.default
+        return !fm.fileExists(atPath: scratchpadURL(in: folder).path)
+            && fm.fileExists(atPath: placeholderURL(in: folder).path)
+    }
+
+    /// Ask iCloud to pull the file down. No-op when there's no stub.
+    @discardableResult
+    static func startDownloadIfPlaceholder(
+        in folder: URL = StorageLocation.currentFolder
+    ) -> Bool {
+        guard hasUndownloadedScratchpad(in: folder) else { return false }
+        try? FileManager.default.startDownloadingUbiquitousItem(
+            at: scratchpadURL(in: folder)
+        )
+        return true
+    }
+
+    /// Raised when the destination folder's scratchpad is still in the
+    /// cloud. Better to stop and let the user retry than to guess.
+    enum SwitchError: LocalizedError {
+        case destinationNotDownloaded
+
+        var errorDescription: String? {
+            "That folder's scratchpad hasn't downloaded from iCloud yet."
+        }
+        var recoverySuggestion: String? {
+            "Wisp has asked iCloud for it. Try again in a moment."
+        }
+    }
+
     /// Pure: timestamped backup filename used when a folder switch
     /// would otherwise overwrite the user's local text.
     static func backupFilename(at date: Date = Date()) -> String {
@@ -85,6 +139,13 @@ enum StorageLocation {
         // Same folder — nothing to do.
         if (newURL.standardizedFileURL.path) == (oldURL.standardizedFileURL.path) {
             return SwitchResult(newText: currentText, backupURL: nil, loadedExisting: false)
+        }
+
+        // A stub means the real content exists, just not here yet.
+        // Adopting the folder now would write over it.
+        if hasUndownloadedScratchpad(in: folder) {
+            startDownloadIfPlaceholder(in: folder)
+            throw SwitchError.destinationNotDownloaded
         }
 
         if fm.fileExists(atPath: newURL.path) {

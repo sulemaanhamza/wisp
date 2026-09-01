@@ -8,11 +8,36 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT/build"
 APP_DIR="$BUILD_DIR/$NAME.app"
 
-echo "Building $NAME $VERSION (release)..."
-swift build -c release --package-path "$ROOT"
+# Universal (arm64 + x86_64) so Intel Macs can run Wisp too.
+#
+# Not `swift build --arch arm64 --arch x86_64`: that path needs Xcode's
+# xcbuild, and this project is meant to build with bare Command Line
+# Tools. Two single-arch builds plus lipo gets the same fat binary with
+# nothing but the Swift toolchain.
+echo "Building $NAME $VERSION (release, universal)..."
+ARCH_DIR="$ROOT/.build-universal"
+SLICES=()
+for TRIPLE in arm64-apple-macosx13.0 x86_64-apple-macosx13.0; do
+    echo "  - $TRIPLE"
+    swift build -c release \
+        --package-path "$ROOT" \
+        --triple "$TRIPLE" \
+        --scratch-path "$ARCH_DIR/$TRIPLE"
+    # Ask SwiftPM where it put the binary rather than assuming the
+    # layout of its scratch directory.
+    BIN_DIR="$(swift build -c release \
+        --package-path "$ROOT" \
+        --triple "$TRIPLE" \
+        --scratch-path "$ARCH_DIR/$TRIPLE" \
+        --show-bin-path)"
+    SLICE="$BIN_DIR/$NAME"
+    [[ -x "$SLICE" ]] || { echo "Error: build did not produce $SLICE" >&2; exit 1; }
+    SLICES+=("$SLICE")
+done
 
-BINARY="$ROOT/.build/release/$NAME"
-[[ -x "$BINARY" ]] || { echo "Error: build did not produce $BINARY" >&2; exit 1; }
+BINARY="$ARCH_DIR/$NAME"
+lipo -create "${SLICES[@]}" -output "$BINARY"
+echo "  = $(lipo -info "$BINARY")"
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"

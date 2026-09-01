@@ -9,11 +9,20 @@ final class FloatingPanel: NSPanel {
     /// through to the default behavior (orderOut the panel).
     var onCancel: (() -> Bool)?
 
+    /// Performs the actual dismissal once Esc has gone unclaimed. The
+    /// owner supplies this so every way out of the panel — Esc, the
+    /// hotkey, the menu bar — runs the same save-and-checkpoint path.
+    var onDismiss: (() -> Void)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
         if onCancel?() == true { return }
-        orderOut(nil)
+        if let onDismiss {
+            onDismiss()
+        } else {
+            orderOut(nil)
+        }
     }
 }

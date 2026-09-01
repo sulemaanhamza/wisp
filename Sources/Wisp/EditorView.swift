@@ -37,11 +37,22 @@ final class EditorModel: ObservableObject {
     @Published var showHelp: Bool = false
     @Published var showHotKeyCapture: Bool = false
     @Published var showFirstRunHint: Bool = false
+    /// Tips this user hasn't been shown, fixed for the session so the
+    /// "New" group doesn't vanish out from under them the moment the
+    /// dot is marked seen.
+    @Published private(set) var newTips: [Tip] = []
+    /// Drives the dot on the `?`. Cleared as soon as they look.
+    @Published private(set) var hasUnseenTips: Bool = false
     @Published var showTour: Bool = false
     /// Set to true when the user clicks "Later" on the update overlay.
     /// Reset to false on every panel-open so the overlay reappears on
     /// the next interaction if an update is still available.
     @Published var updateDismissed: Bool = false
+    /// True when the last write to disk failed — ejected drive, lost
+    /// permission, a sync folder that went away. Surfaced in the footer
+    /// so the user is never told everything is fine while nothing is
+    /// actually being saved.
+    @Published private(set) var saveFailed: Bool = false
 
     // MARK: Find
     @Published var showFind: Bool = false
@@ -100,6 +111,14 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(fontFace.rawValue, forKey: "FontFace")
         }
     }
+    /// How much of the desktop shows through. Persisted.
+    @Published var transparency: Transparency = .subtle {
+        didSet {
+            guard didLoad else { return }
+            UserDefaults.standard.set(transparency.rawValue, forKey: "Transparency")
+            onChromeChange?()
+        }
+    }
     /// User-facing choice: light, dark, or follow-system. Persisted.
     @Published var themePreference: ThemePreference = .system {
         didSet {
@@ -114,14 +133,15 @@ final class EditorModel: ObservableObject {
     /// appearance via the KVO observer below.
     @Published private(set) var theme: Theme = .dark {
         didSet {
-            onThemeChange?(theme)
+            onChromeChange?()
         }
     }
 
     /// PanelController subscribes to this so it can apply chrome changes
     /// (visualEffect material, tint color, panel appearance) when the
-    /// theme flips. SwiftUI handles its own re-render via @Published.
-    var onThemeChange: (@MainActor (Theme) -> Void)?
+    /// theme or the transparency changes. SwiftUI handles its own
+    /// re-render via @Published.
+    var onChromeChange: (@MainActor () -> Void)?
 
     /// KVO observer that re-resolves the theme when the OS switches
     /// between Light and Dark while the user is on .system. Held strong
@@ -139,6 +159,11 @@ final class EditorModel: ObservableObject {
     /// the file has actually moved on (e.g., another Mac wrote to it
     /// via iCloud sync).
     private var lastLoadedMTime: Date?
+    /// Text last successfully written to disk. Two jobs: it is the
+    /// "before" side of the snapshot big-shrink guard, and it tells us
+    /// what the file holds, so a disk reload can never discard edits
+    /// that haven't been saved yet.
+    private var lastSavedText: String = ""
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: "Theme"),
@@ -160,17 +185,84 @@ final class EditorModel: ObservableObject {
            let face = FontFace(rawValue: saved) {
             fontFace = face
         }
+        if let saved = UserDefaults.standard.string(forKey: "Transparency"),
+           let level = Transparency(rawValue: saved) {
+            transparency = level
+        }
         if let saved = HotKey.loadFromDefaults() {
             hotKey = saved
         }
-        showFirstRunHint = !UserDefaults.standard.bool(forKey: "HasSeenFirstRunTour")
+        let hasSeenTour = UserDefaults.standard.bool(forKey: "HasSeenFirstRunTour")
+        showFirstRunHint = !hasSeenTour
+        if hasSeenTour {
+            // Someone who updated into this. Anything they've not been
+            // shown gets flagged on the `?`.
+            newTips = Tips.unseen(
+                since: UserDefaults.standard.string(forKey: Tips.seenKey)
+            )
+            hasUnseenTips = !newTips.isEmpty
+        } else {
+            // Fresh install: the tour covers the basics and the help
+            // overlay is already current, so nothing here is "new".
+            UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
+        }
         let url = StorageLocation.currentURL
         if let loaded = try? String(contentsOf: url, encoding: .utf8) {
             text = loaded
+            lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
+        } else {
+            // Nothing readable. In a sync folder that usually means
+            // iCloud is still holding the file in the cloud — ask for
+            // it now and pick it up on a later panel open.
+            StorageLocation.startDownloadIfPlaceholder()
         }
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
         didLoad = true
+        // Preserve the loaded content as a session-start snapshot
+        // (deduped) so each launch is a recoverable point.
+        let loadedText = text
+        Task.detached(priority: .background) {
+            Snapshots.recordCheckpoint(text: loadedText)
+        }
+    }
+
+    /// Called when the panel is dismissed — a natural "I'm done for
+    /// now" boundary. Flushes the debounced save before checkpointing:
+    /// without that, re-summoning inside the debounce window reloads
+    /// the *previous* save off disk and the last keystrokes vanish.
+    func saveAndCheckpoint() {
+        saveNow()
+        let snapshot = text
+        Task.detached(priority: .background) {
+            Snapshots.recordCheckpoint(text: snapshot)
+        }
+    }
+
+    /// Whether a panel-open should pull the file back into the editor.
+    /// Pure and public so the rule that once cost people their last
+    /// keystrokes is pinned by tests.
+    enum ReloadDecision: Equatable {
+        /// The file hasn't moved on since we last read or wrote it.
+        case skipNotNewer
+        /// The file changed, but we're holding edits it doesn't have.
+        case skipUnsavedEdits
+        case reload
+    }
+
+    nonisolated static func decideReload(
+        fileMTime: Date,
+        lastLoadedMTime: Date?,
+        text: String,
+        lastSavedText: String
+    ) -> ReloadDecision {
+        if let last = lastLoadedMTime, fileMTime <= last { return .skipNotNewer }
+        // saveNow() keeps lastSavedText in step with the file, so a
+        // mismatch here means we hold work the file doesn't. Local
+        // edits win: losing what someone just typed is worse than
+        // missing a remote change we'll pick up on the next open.
+        guard text == lastSavedText else { return .skipUnsavedEdits }
+        return .reload
     }
 
     /// Re-read scratchpad.md from disk if its modification time has
@@ -181,14 +273,31 @@ final class EditorModel: ObservableObject {
     /// — kept intentionally simple).
     func reloadFromDiskIfChanged() {
         let url = StorageLocation.currentURL
-        guard let mtime = Self.fileMTime(at: url) else { return }
-        if let last = lastLoadedMTime, mtime <= last { return }
+        guard let mtime = Self.fileMTime(at: url) else {
+            StorageLocation.startDownloadIfPlaceholder()
+            return
+        }
+        switch Self.decideReload(
+            fileMTime: mtime,
+            lastLoadedMTime: lastLoadedMTime,
+            text: text,
+            lastSavedText: lastSavedText
+        ) {
+        case .skipNotNewer:
+            return
+        case .skipUnsavedEdits:
+            lastLoadedMTime = mtime
+            return
+        case .reload:
+            break
+        }
         guard let loaded = try? String(contentsOf: url, encoding: .utf8) else { return }
         if loaded != text {
             isReloading = true
             text = loaded
             isReloading = false
         }
+        lastSavedText = loaded
         lastLoadedMTime = mtime
     }
 
@@ -200,6 +309,7 @@ final class EditorModel: ObservableObject {
         isReloading = true
         text = newText
         isReloading = false
+        lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
     }
 
@@ -220,6 +330,27 @@ final class EditorModel: ObservableObject {
     func cycleTheme() {
         themePreference = themePreference.next
         requestFocus()
+    }
+
+    /// File the note into the Inbox and start with a clean pad. Returns
+    /// false when there was nothing worth filing.
+    @discardableResult
+    func archiveToInbox() -> Bool {
+        let current = text
+        guard Inbox.isWorthArchiving(current) else { return false }
+        do {
+            try Inbox.archive(text: current)
+        } catch {
+            saveFailed = true
+            return false
+        }
+        // The archived copy also goes to history, so an accidental
+        // archive is recoverable from the same place as everything else.
+        Snapshots.recordCheckpoint(text: current)
+        text = ""
+        saveNow()
+        requestFocus()
+        return true
     }
 
     private func systemAppearanceMaybeChanged() {
@@ -287,6 +418,20 @@ final class EditorModel: ObservableObject {
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
     }
 
+    /// Opening the help is what marks tips seen — that's the moment
+    /// they're in front of the user. `newTips` is deliberately left
+    /// alone so the group stays on screen for this session.
+    func openHelp() {
+        showHelp = true
+        guard hasUnseenTips else { return }
+        hasUnseenTips = false
+        UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
+    }
+
+    func closeHelp() {
+        showHelp = false
+    }
+
     func openTour() {
         showTour = true
     }
@@ -300,17 +445,43 @@ final class EditorModel: ObservableObject {
     /// Force a synchronous flush — call from applicationWillTerminate so an
     /// in-flight debounced save isn't lost when the user quits.
     func flushSave() {
+        saveNow()
+        Snapshots.recordCheckpoint(text: text)
+    }
+
+    /// The one place that writes the scratchpad. Cancels any pending
+    /// debounced save, preserves the old version if this write would
+    /// collapse it, and — crucially — records the resulting mtime.
+    /// Skipping that last step is what made our own writes look like
+    /// somebody else's to reloadFromDiskIfChanged.
+    func saveNow() {
         saveTask?.cancel()
-        try? Self.write(text)
+        saveTask = nil
+        guard didLoad else { return }
+        let newText = text
+        guard newText != lastSavedText || saveFailed else { return }
+        // The old version goes to history first, while it still exists
+        // on disk — this is the accidental select-all-and-type case.
+        Snapshots.recordOnSave(old: lastSavedText, new: newText)
+        do {
+            try Self.write(newText)
+            lastSavedText = newText
+            lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
+            saveFailed = false
+        } catch {
+            // Keep lastSavedText untouched: the text stays "unsaved",
+            // so the next change retries and a reload can't overwrite
+            // it with the stale copy on disk.
+            saveFailed = true
+        }
     }
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = text
-        saveTask = Task.detached(priority: .background) {
+        saveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
-            try? Self.write(snapshot)
+            self?.saveNow()
         }
     }
 
@@ -344,7 +515,8 @@ struct EditorView: View {
                         findHighlightRange: model.findHighlightRange,
                         fontSize: model.fontSize,
                         fontFace: model.fontFace,
-                        theme: model.theme
+                        theme: model.theme,
+                        transparency: model.transparency
                     )
                     .padding(.horizontal, 28)
                     .padding(.top, model.headings.isEmpty ? 28 : 4)
@@ -360,15 +532,21 @@ struct EditorView: View {
                 }
                 BottomBar(
                     wordCount: wordCount,
+                    saveFailed: model.saveFailed,
                     fontSize: model.fontSize,
                     onCycleFontSize: { model.cycleFontSize() },
                     themePreference: model.themePreference,
                     onCycleTheme: { model.cycleTheme() },
                     updateState: updater.state,
                     onUpdateClick: { updater.handleClick() },
+                    hasUnseenTips: model.hasUnseenTips,
                     onHelpClick: {
                         withAnimation(.easeInOut(duration: 0.18)) {
-                            model.showHelp.toggle()
+                            if model.showHelp {
+                                model.closeHelp()
+                            } else {
+                                model.openHelp()
+                            }
                         }
                     }
                 )
@@ -393,9 +571,9 @@ struct EditorView: View {
                 .transition(.opacity)
             }
             if model.showHelp {
-                HelpOverlay(theme: model.theme) {
+                HelpOverlay(theme: model.theme, newTips: model.newTips) {
                     withAnimation(.easeInOut(duration: 0.18)) {
-                        model.showHelp = false
+                        model.closeHelp()
                     }
                 }
                 .transition(.opacity)
@@ -467,7 +645,7 @@ struct EditorView: View {
         guard !model.updateDismissed else { return false }
         guard !model.showHelp, !model.showTour, !model.showHotKeyCapture else { return false }
         switch updater.state {
-        case .available, .downloading, .pending: return true
+        case .available, .downloading, .pending, .failed: return true
         case .idle: return false
         }
     }

@@ -18,6 +18,13 @@ enum SmartEditing {
     /// the current line is an empty list item — the caller should treat that
     /// as a signal to exit the list.
     static func nextListMarker(for line: String) -> String? {
+        // Task items are bullets too, so they have to be matched before
+        // the plain-bullet rule below — otherwise Enter continues the
+        // list but drops the box.
+        if let match = line.firstMatch(of: /^([-*+])\s\[[ xX]\]\s/) {
+            if isEmptyAfter(match.range, in: line) { return "" }
+            return "\(match.1) [ ] "
+        }
         if let match = line.firstMatch(of: /^([-*+])\s/) {
             let bullet = String(match.1)
             if isEmptyAfter(match.range, in: line) { return "" }

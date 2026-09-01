@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest something Wisp should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Wisp is deliberately small — one note, one keypress, no accounts.
+        The best requests explain the moment you wanted it, not just the
+        feature, so it can be solved in the smallest way that works.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What were you trying to do?
+      description: The moment where Wisp got in the way, or fell short.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: Your idea, if you have one. Rough is fine.

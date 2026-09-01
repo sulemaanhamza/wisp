@@ -2,29 +2,52 @@ import SwiftUI
 
 struct BottomBar: View {
     let wordCount: Int
+    let saveFailed: Bool
     let fontSize: FontSize
     let onCycleFontSize: () -> Void
     let themePreference: ThemePreference
     let onCycleTheme: () -> Void
     let updateState: UpdateState
     let onUpdateClick: () -> Void
+    /// Something in the help overlay is new to this user.
+    let hasUnseenTips: Bool
     let onHelpClick: () -> Void
 
     var body: some View {
         HStack(spacing: 16) {
             Text(wordsLabel)
                 .monospacedDigit()
+            if saveFailed {
+                Text("couldn't save")
+                    .foregroundStyle(.orange)
+                    .help("Wisp can't write to its storage folder. Your text is still here — pick another folder from the menu bar icon.")
+            }
             Spacer()
             updateIndicator
             Button(action: onHelpClick) {
-                Image(systemName: "questionmark")
-                    .font(.system(size: 11, weight: .regular))
-                    .frame(width: 24, height: 20)
-                    .contentShape(Rectangle())
+                // Same beacon as the first-run dot, footer-sized. The
+                // two never appear together: unseen tips are only
+                // flagged for someone who has already dismissed the
+                // tour.
+                HStack(spacing: 4) {
+                    if hasUnseenTips {
+                        PulsingDot(dot: 5, ring: 11)
+                            .frame(width: 16, height: 16)
+                    }
+                    Image(systemName: "questionmark")
+                        .font(.system(size: 11, weight: .regular))
+                }
+                .frame(minWidth: 24, minHeight: 20)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("Keyboard shortcuts and formatting")
+            .help(hasUnseenTips
+                  ? "Shortcuts and formatting — something new in here"
+                  : "Keyboard shortcuts and formatting")
+            .accessibilityLabel(hasUnseenTips
+                  ? "Keyboard shortcuts and formatting, new items"
+                  : "Keyboard shortcuts and formatting")
             Button(action: onCycleTheme) {
                 Image(systemName: themeIconName)
                     .font(.system(size: 11, weight: .regular))
@@ -34,6 +57,7 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help(themeButtonHelp)
+            .accessibilityLabel(themeButtonHelp)
             Button(action: onCycleFontSize) {
                 Text("Aa")
                     .font(.system(size: indicatorSize, weight: .medium, design: .serif))
@@ -43,6 +67,7 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help("Cycle text size (⌘1 / ⌘2 / ⌘3)")
+            .accessibilityLabel("Cycle text size")
             Text("esc to close")
         }
         .font(.system(size: 11, weight: .regular))
@@ -72,6 +97,13 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help("Restart Wisp to apply the update")
+        case .failed(let version):
+            Button(action: onUpdateClick) {
+                Text("↗ v\(version) — download manually")
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("Wisp couldn't replace itself. Opens the download page.")
         }
     }
 

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST" ] && sudo xcode-select -s "$LATEST"
+          swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Self-tests
+        run: swift run Wisp --test
+
+  universal:
+    name: Universal binary
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST" ] && sudo xcode-select -s "$LATEST"
+          swift --version
+
+      # The release build has to be universal, and it has to work with
+      # nothing but the Swift toolchain. Cheaper to catch that here than
+      # in the middle of a release.
+      - name: Build the app bundle
+        run: ./scripts/build-app.sh 0.0.0-ci
+
+      - name: Check both architectures are present
+        run: |
+          lipo -info build/Wisp.app/Contents/MacOS/Wisp
+          lipo -info build/Wisp.app/Contents/MacOS/Wisp | grep -q arm64
+          lipo -info build/Wisp.app/Contents/MacOS/Wisp | grep -q x86_64

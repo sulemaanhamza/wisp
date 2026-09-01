@@ -50,6 +50,14 @@ if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
     exit 1
 fi
 
+# The changelog is the record of what shipped; a release without an
+# entry is a release nobody can look up later.
+if ! grep -q "^## $VERSION" CHANGELOG.md; then
+    echo "Error: CHANGELOG.md has no '## $VERSION' section." >&2
+    echo "Rename the Unreleased heading, or add one, then re-run." >&2
+    exit 1
+fi
+
 echo "==> 1/7 Running self-tests..."
 swift run Wisp --test
 

@@ -30,7 +30,7 @@ struct HotKeyCaptureOverlay: View {
             VStack(spacing: 14) {
                 Text("Press your shortcut")
                     .font(.system(size: 18, weight: .medium))
-                Text("must include ⌘, ⌥, ⌃, or ⇧ — Esc to cancel")
+                Text("must include ⌘, ⌥, or ⌃ — Esc to cancel")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                 if let errorMessage {
@@ -56,13 +56,19 @@ struct HotKeyCaptureOverlay: View {
             }
 
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let needed: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
-            guard !mods.intersection(needed).isEmpty else { return nil }
-
             let hotKey = HotKey(
                 keyCode: UInt32(event.keyCode),
                 modifiers: HotKey.carbonModifiers(from: mods)
             )
+
+            guard HotKey.hasRequiredModifier(hotKey.modifiers) else {
+                errorMessage = "Add ⌘, ⌥, or ⌃ — shift on its own isn't enough."
+                return nil
+            }
+            if let reason = HotKey.reservedReason(for: hotKey) {
+                errorMessage = reason
+                return nil
+            }
 
             if let err = onTryRegister(hotKey) {
                 errorMessage = err
