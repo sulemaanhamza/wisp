@@ -21,8 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Swift version
-        run: swift --version
+      - name: Select the newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST" ] && sudo xcode-select -s "$LATEST"
+          swift --version
 
       - name: Build
         run: swift build
@@ -35,6 +38,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST" ] && sudo xcode-select -s "$LATEST"
+          swift --version
 
       # The release build has to be universal, and it has to work with
       # nothing but the Swift toolchain. Cheaper to catch that here than
