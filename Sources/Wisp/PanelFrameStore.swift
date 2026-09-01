@@ -23,6 +23,23 @@ enum PanelFrameStore {
         defaults.set(NSStringFromRect(frame), forKey: key)
     }
 
+    /// Pure: a frame that fits on `screen`, keeping the user's size and
+    /// position wherever it already fits.
+    ///
+    /// A backstop, not a nicety. Whatever the cause — a stray resize, a
+    /// screen that shrank, a bug like the one that let content grow the
+    /// window — a panel taller than the display is unusable, and it
+    /// persists, so every later launch is broken too. Clamping on both
+    /// the way in and the way out means that state can't be reached.
+    static func clamped(_ frame: NSRect, to screen: NSRect) -> NSRect {
+        var result = frame
+        result.size.width = min(result.width, screen.width)
+        result.size.height = min(result.height, screen.height)
+        result.origin.x = min(max(result.minX, screen.minX), screen.maxX - result.width)
+        result.origin.y = min(max(result.minY, screen.minY), screen.maxY - result.height)
+        return result
+    }
+
     static func load(defaults: UserDefaults = .standard) -> NSRect? {
         guard let s = defaults.string(forKey: key) else { return nil }
         let rect = NSRectFromString(s)

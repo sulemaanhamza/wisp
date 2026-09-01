@@ -2,6 +2,14 @@
 
 Notable changes to Wisp. Newest first.
 
+## 0.1.43 — 2026-09-01
+
+### Fixed
+
+- **The panel could open far taller than the screen.** Whatever was drawn inside the window was allowed to push the window bigger, and the enlarged size was then saved — so it came back on every launch, and resizing it by hand didn't stick. This had been happening quietly since long before this release: the panel was being forced to about 1164 points tall no matter what. A release with longer notes made it dramatic rather than merely wrong, growing the window to several times the height of the screen.
+
+  Three changes: the content can no longer size the window at all; any window is now kept within the screen it's on, both when saved and when restored, so a bad size can't survive a restart; and the help overlay scrolls instead of demanding room the panel may not have.
+
 ## 0.1.42 — 2026-09-01
 
 ### Fixed

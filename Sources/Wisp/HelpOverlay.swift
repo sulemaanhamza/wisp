@@ -20,6 +20,9 @@ struct HelpOverlay: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onDismiss() }
 
+            // Scrolls when it doesn't fit. The list only ever grows,
+            // and a panel the user has made small is still theirs.
+            ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 if !newTips.isEmpty {
                     section(
@@ -70,6 +73,7 @@ struct HelpOverlay: View {
             .padding(.horizontal, 40)
             .padding(.vertical, 36)
             .frame(maxWidth: 560, alignment: .leading)
+            }
         }
     }
 
