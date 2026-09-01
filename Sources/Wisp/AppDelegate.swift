@@ -13,10 +13,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenuBuilder.make(target: self)
         let panel = PanelController(model: model, updater: updater)
         panelController = panel
-        menuBarController = MenuBarController(
-            onClick: { [weak panel] in panel?.toggle() },
+        menuBarController = MenuBarController(actions: .init(
+            onOpen: { [weak panel] in panel?.toggle() },
+            onArchiveToInbox: { [weak self, weak panel] in
+                panel?.openIfNeeded()
+                self?.model.archiveToInbox()
+            },
             currentFontFace: { [weak self] in self?.model.fontFace ?? .charter },
             onSelectFontFace: { [weak self] face in self?.model.fontFace = face },
+            currentTransparency: { [weak self] in self?.model.transparency ?? .subtle },
+            onSelectTransparency: { [weak self] level in self?.model.transparency = level },
             currentHotKey: { [weak self] in self?.model.hotKey ?? .default },
             onSetHotKey: { [weak self, weak panel] in
                 panel?.openIfNeeded()
@@ -40,8 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onResetStorageLocation: { [weak self] in
                 self?.resetStorageLocation()
-            }
-        )
+            },
+            onRevealScratchpad: {
+                NSWorkspace.shared.activateFileViewerSelecting([StorageLocation.currentURL])
+            },
+            onRevealInbox: { Inbox.revealInFinder() },
+            onRevealHistory: { Snapshots.revealInFinder() }
+        ))
 
         // Initial registration uses whatever the model loaded from
         // UserDefaults (or HotKey.default if it's a fresh install). If
@@ -100,6 +111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc func archiveToInbox(_ sender: Any?) {
+        panelController?.openIfNeeded()
+        model.archiveToInbox()
+    }
+
     @objc func showFind(_ sender: Any?) {
         panelController?.openIfNeeded()
         model.openFind()
@@ -109,13 +125,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func setMediumFont(_ sender: Any?) { model.fontSize = .medium }
     @objc func setLargeFont(_ sender: Any?) { model.fontSize = .large }
 
+    /// The scratchpad's text view, or nil when focus is somewhere else.
+    /// The find field is an NSTextView too — without the field-editor
+    /// check, hitting Bold while searching wrapped the *query* in
+    /// asterisks.
+    private func scratchpadTextView() -> NSTextView? {
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
+              !textView.isFieldEditor else { return nil }
+        return textView
+    }
+
     @objc func toggleBold(_ sender: Any?) {
-        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+        guard let textView = scratchpadTextView() else { return }
         MarkdownWrap.toggle(in: textView, marker: "**")
     }
 
     @objc func toggleItalic(_ sender: Any?) {
-        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+        guard let textView = scratchpadTextView() else { return }
         MarkdownWrap.toggle(in: textView, marker: "*")
     }
 
@@ -148,9 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard openPanel.runModal() == .OK, let folder = openPanel.url else { return }
 
-        let candidate = StorageLocation.scratchpadURL(in: folder)
-        let destinationHasFile = FileManager.default.fileExists(atPath: candidate.path)
-        if destinationHasFile {
+        if StorageLocation.hasScratchpad(in: folder) {
             let alert = NSAlert()
             alert.messageText = "A scratchpad already exists in this folder"
             alert.informativeText = "Use the existing one? Your current text will be saved as a backup file in the previous location."

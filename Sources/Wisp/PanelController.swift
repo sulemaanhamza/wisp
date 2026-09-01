@@ -109,10 +109,8 @@ final class PanelController {
             panel.center()
         }
 
-        applyTheme(model.theme)
-        model.onThemeChange = { [weak self] theme in
-            self?.applyTheme(theme)
-        }
+        applyChrome()
+        model.onChromeChange = { [weak self] in self?.applyChrome() }
 
         // Persist size + position whenever the user moves or finishes
         // resizing the panel, so the next summon restores it. UserDefaults
@@ -153,6 +151,8 @@ final class PanelController {
             }
             return false
         }
+
+        panel.onDismiss = { [weak self] in self?.dismiss() }
     }
 
     func openIfNeeded() {
@@ -161,21 +161,23 @@ final class PanelController {
         }
     }
 
+    /// Every dismissal funnels through here: flush the pending save,
+    /// checkpoint history, then hide.
     func dismiss() {
-        if panel.isVisible {
-            panel.orderOut(nil)
-        }
+        guard panel.isVisible else { return }
+        model.saveAndCheckpoint()
+        panel.orderOut(nil)
     }
 
     func toggle() {
         if panel.isVisible {
-            panel.orderOut(nil)
+            dismiss()
         } else {
             // No re-centering — the panel keeps the size and position the
             // user last left it (restored from PanelFrameStore on launch,
             // kept fresh by the move/resize observers).
             panel.makeKeyAndOrderFront(nil)
-            applyTheme(model.theme)
+            applyChrome()
             // Pick up changes another Mac wrote to scratchpad.md while
             // we were dismissed — covers the iCloud/Dropbox sync case.
             // Cheap (one stat + maybe one read), so safe to do every
@@ -200,12 +202,12 @@ final class PanelController {
         }
     }
 
-    private func applyTheme(_ theme: Theme) {
-        let chrome = Chrome.for(theme)
+    private func applyChrome() {
+        let chrome = Chrome.for(model.theme, transparency: model.transparency)
         panel.appearance = NSAppearance(named: chrome.appearance)
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
-        visualEffect.isHidden = (theme == .light)
+        visualEffect.isHidden = !chrome.usesVisualEffect
         tint.layer?.backgroundColor = chrome.tintColor.cgColor
         // Border is rendered by SwiftUI in EditorView via .overlay.
     }

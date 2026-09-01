@@ -43,6 +43,12 @@ struct UpdateAvailableOverlay: View {
                         ProgressView()
                             .controlSize(.small)
                             .padding(.vertical, 2)
+                    } else if let explanation {
+                        Text(explanation)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     } else if !highlights.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("What's new")
@@ -109,6 +115,8 @@ struct UpdateAvailableOverlay: View {
             return "Downloading \(version)…"
         case .pending(let version):
             return "Wisp \(version) is ready to install"
+        case .failed(let version):
+            return "Wisp \(version) couldn't install itself"
         case .idle:
             return ""
         }
@@ -117,8 +125,16 @@ struct UpdateAvailableOverlay: View {
     private var primaryLabel: String {
         switch state {
         case .pending: return "Restart Now"
+        case .failed: return "Download from GitHub"
         default: return "Update & Restart"
         }
+    }
+
+    /// Shown instead of the release highlights when an install failed —
+    /// the highlights are no longer the useful thing to say.
+    private var explanation: String? {
+        guard case .failed = state else { return nil }
+        return "Wisp couldn't replace its own app bundle. This usually means /Applications needs an admin, or Wisp is running from Downloads. Download it and drag it in once, and updates will work from then on."
     }
 
     private var isDownloading: Bool {

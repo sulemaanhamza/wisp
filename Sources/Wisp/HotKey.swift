@@ -22,6 +22,29 @@ struct HotKey: Equatable, Sendable {
         return s
     }
 
+    /// Shift alone doesn't count as a modifier for a global shortcut:
+    /// ⇧A would fire every time the user typed a capital A, in any app.
+    /// Pure so it's testable.
+    static func hasRequiredModifier(_ modifiers: UInt32) -> Bool {
+        let required = UInt32(cmdKey) | UInt32(optionKey) | UInt32(controlKey)
+        return (modifiers & required) != 0
+    }
+
+    /// Combos we refuse to bind, with the reason to show the user.
+    /// Carbon will happily hand us ⌘C system-wide, and the user would
+    /// lose copy in every app with no obvious way back. Pure so it's
+    /// testable.
+    static func reservedReason(for hotKey: HotKey) -> String? {
+        guard hotKey.modifiers == UInt32(cmdKey) else { return nil }
+        let reserved: Set<Int> = [
+            kVK_ANSI_A, kVK_ANSI_C, kVK_ANSI_V, kVK_ANSI_X, kVK_ANSI_Z,
+            kVK_ANSI_S, kVK_ANSI_W, kVK_ANSI_Q, kVK_ANSI_N, kVK_ANSI_F,
+            kVK_Space, kVK_Tab,
+        ]
+        guard reserved.contains(Int(hotKey.keyCode)) else { return nil }
+        return "\(hotKey.displayString) is a system shortcut. Add ⌥ or ⌃ to it."
+    }
+
     static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
         var c: UInt32 = 0
         if flags.contains(.command) { c |= UInt32(cmdKey) }

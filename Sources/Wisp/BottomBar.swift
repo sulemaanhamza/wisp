@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BottomBar: View {
     let wordCount: Int
+    let saveFailed: Bool
     let fontSize: FontSize
     let onCycleFontSize: () -> Void
     let themePreference: ThemePreference
@@ -14,6 +15,11 @@ struct BottomBar: View {
         HStack(spacing: 16) {
             Text(wordsLabel)
                 .monospacedDigit()
+            if saveFailed {
+                Text("couldn't save")
+                    .foregroundStyle(.orange)
+                    .help("Wisp can't write to its storage folder. Your text is still here — pick another folder from the menu bar icon.")
+            }
             Spacer()
             updateIndicator
             Button(action: onHelpClick) {
@@ -25,6 +31,7 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help("Keyboard shortcuts and formatting")
+            .accessibilityLabel("Keyboard shortcuts and formatting")
             Button(action: onCycleTheme) {
                 Image(systemName: themeIconName)
                     .font(.system(size: 11, weight: .regular))
@@ -34,6 +41,7 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help(themeButtonHelp)
+            .accessibilityLabel(themeButtonHelp)
             Button(action: onCycleFontSize) {
                 Text("Aa")
                     .font(.system(size: indicatorSize, weight: .medium, design: .serif))
@@ -43,6 +51,7 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help("Cycle text size (⌘1 / ⌘2 / ⌘3)")
+            .accessibilityLabel("Cycle text size")
             Text("esc to close")
         }
         .font(.system(size: 11, weight: .regular))
@@ -72,6 +81,13 @@ struct BottomBar: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .help("Restart Wisp to apply the update")
+        case .failed(let version):
+            Button(action: onUpdateClick) {
+                Text("↗ v\(version) — download manually")
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("Wisp couldn't replace itself. Opens the download page.")
         }
     }
 

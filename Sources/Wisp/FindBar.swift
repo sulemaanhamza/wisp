@@ -92,12 +92,27 @@ struct FindBar: View {
         .help(help)
     }
 
+    /// True while the search field itself owns the keyboard. The field
+    /// is edited through the window's shared field editor; the
+    /// scratchpad's own text view is not a field editor, which is what
+    /// separates the two.
+    private static func fieldHasFocus() -> Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder as? NSTextView else {
+            return false
+        }
+        return responder.isFieldEditor
+    }
+
     /// Local key monitor so Esc / Return / Shift-Return work while the
     /// text field holds focus (the field would otherwise swallow Esc as
     /// "cancel editing" and Return as a no-op). Returning nil consumes
     /// the event so no newline is inserted.
     private func startListening() {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Only claim keys while the search field has focus. Click
+            // back into the note with the bar still open and Return has
+            // to do what it always does — start a new line.
+            guard Self.fieldHasFocus() else { return event }
             switch Int(event.keyCode) {
             case kVK_Escape:
                 onClose()
