@@ -2,6 +2,16 @@
 
 Notable changes to Wisp. Newest first.
 
+## Unreleased
+
+### Fixed
+
+- **A panel kept on an external monitor was dragged back to the laptop screen on every launch.** 0.1.43 started keeping the restored window inside the screen, but it used the main screen rather than the one the panel was actually on. It now restores to the screen it was saved on.
+
+### Changed
+
+- The release script refuses release notes the in-app update card can't render safely, removes the built app bundle after uploading so it can't be mistaken for the installed one, and measures the panel's size after launch. Three guards for the three things that went wrong in 0.1.42.
+
 ## 0.1.43 — 2026-09-01
 
 ### Fixed
