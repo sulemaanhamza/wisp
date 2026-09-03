@@ -17,7 +17,6 @@ Requires macOS 13 (Ventura) or later. Universal — Apple silicon and Intel.
 ```sh
 brew tap sulemaanhamza/wisp
 brew install --cask wisp
-xattr -d com.apple.quarantine /Applications/Wisp.app
 ```
 
 **Direct download**
@@ -28,7 +27,7 @@ Grab the latest zip from [Releases](https://github.com/sulemaanhamza/wisp/releas
 xattr -d com.apple.quarantine /Applications/Wisp.app
 ```
 
-The `xattr` step is needed because Wisp isn't signed with an Apple Developer ID — it tells macOS the app is safe to open.
+The `xattr` step is needed because Wisp isn't signed with an Apple Developer ID — it tells macOS the app is safe to open. Homebrew does this for you.
 
 ## Features
 
