@@ -114,7 +114,7 @@ final class PanelController {
         let screens = NSScreen.screens.map { $0.visibleFrame }
         if let saved = PanelFrameStore.load(),
            PanelFrameStore.isUsable(saved, onScreens: screens),
-           let host = NSScreen.main?.visibleFrame {
+           let host = PanelFrameStore.bestScreen(for: saved, among: screens) {
             let fitted = PanelFrameStore.clamped(saved, to: host)
             panel.setFrame(fitted, display: false)
             // Write the correction straight back, so a frame saved by

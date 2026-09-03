@@ -750,6 +750,34 @@ enum SelfTests {
                 NSRect(x: -3000, y: -3000, width: 9999, height: 9999), to: screen)
                 == screen)
 
+        // MARK: - PanelFrameStore.bestScreen (multi-monitor restore)
+
+        let laptop = NSRect(x: 0, y: 0, width: 1512, height: 944)
+        let external = NSRect(x: 1512, y: 0, width: 2560, height: 1415)
+        let onExternal = NSRect(x: 2000, y: 300, width: 800, height: 640)
+        check("bestScreen: a panel on the external monitor picks the external",
+              PanelFrameStore.bestScreen(for: onExternal, among: [laptop, external]) == external)
+        check("bestScreen: a panel on the laptop picks the laptop",
+              PanelFrameStore.bestScreen(
+                for: NSRect(x: 100, y: 100, width: 800, height: 640),
+                among: [laptop, external]) == laptop)
+        check("bestScreen: straddling picks the side with more of it",
+              PanelFrameStore.bestScreen(
+                for: NSRect(x: 1300, y: 100, width: 800, height: 640),
+                among: [laptop, external]) == external)
+        check("bestScreen: off every screen is nil",
+              PanelFrameStore.bestScreen(
+                for: NSRect(x: 9000, y: 9000, width: 800, height: 640),
+                among: [laptop, external]) == nil)
+        // The regression: clamping to the *right* screen leaves an
+        // external-monitor panel exactly where the user put it.
+        if let best = PanelFrameStore.bestScreen(for: onExternal, among: [laptop, external]) {
+            check("bestScreen: restore leaves an external-monitor panel alone",
+                  PanelFrameStore.clamped(onExternal, to: best) == onExternal)
+        } else {
+            check("bestScreen: restore leaves an external-monitor panel alone", false)
+        }
+
         // MARK: - Summary
 
         let total = passed + failures.count
