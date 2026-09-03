@@ -33,6 +33,11 @@ jobs:
       - name: Self-tests
         run: swift run Wisp --test
 
+      # Skips itself when there's no display; runs for real on a
+      # runner with a GUI session.
+      - name: Panel size
+        run: ./scripts/check-panel-size.sh
+
   universal:
     name: Universal binary
     runs-on: macos-15

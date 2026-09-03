@@ -31,6 +31,25 @@ enum PanelFrameStore {
     /// window — a panel taller than the display is unusable, and it
     /// persists, so every later launch is broken too. Clamping on both
     /// the way in and the way out means that state can't be reached.
+    /// Pure: the screen a frame most belongs to — the one it overlaps
+    /// most, or nil if it touches none. Restoring must clamp to *this*
+    /// screen, not the main one; clamping to main dragged every panel
+    /// kept on an external monitor back onto the laptop on each launch.
+    static func bestScreen(for frame: NSRect, among screens: [NSRect]) -> NSRect? {
+        var best: NSRect?
+        var bestArea: CGFloat = 0
+        for screen in screens {
+            let overlap = frame.intersection(screen)
+            guard !overlap.isNull else { continue }
+            let area = overlap.width * overlap.height
+            if area > bestArea {
+                bestArea = area
+                best = screen
+            }
+        }
+        return best
+    }
+
     static func clamped(_ frame: NSRect, to screen: NSRect) -> NSRect {
         var result = frame
         result.size.width = min(result.width, screen.width)
