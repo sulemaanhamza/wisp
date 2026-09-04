@@ -111,6 +111,19 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(fontFace.rawValue, forKey: "FontFace")
         }
     }
+    /// Close the panel when the user clicks anywhere outside it. Off by
+    /// default so nobody's habits change on update. Persisted.
+    @Published var dismissOnOutsideClick: Bool = false {
+        didSet {
+            guard didLoad else { return }
+            UserDefaults.standard.set(dismissOnOutsideClick, forKey: OutsideClickMonitor.enabledKey)
+            onDismissPreferenceChange?()
+        }
+    }
+    /// PanelController subscribes so it can start or stop the global
+    /// monitor when the preference flips while the panel is open.
+    var onDismissPreferenceChange: (@MainActor () -> Void)?
+
     /// How much of the desktop shows through. Persisted.
     @Published var transparency: Transparency = .subtle {
         didSet {
@@ -189,6 +202,7 @@ final class EditorModel: ObservableObject {
            let level = Transparency(rawValue: saved) {
             transparency = level
         }
+        dismissOnOutsideClick = UserDefaults.standard.bool(forKey: OutsideClickMonitor.enabledKey)
         if let saved = HotKey.loadFromDefaults() {
             hotKey = saved
         }

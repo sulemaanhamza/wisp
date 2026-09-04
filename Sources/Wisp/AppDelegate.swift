@@ -40,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onToggleLaunchAtLogin: {
                 LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled)
             },
+            currentDismissOnOutsideClick: { [weak self] in self?.model.dismissOnOutsideClick ?? false },
+            onToggleDismissOnOutsideClick: { [weak self] in
+                self?.model.dismissOnOutsideClick.toggle()
+            },
             isStorageCustom: { StorageLocation.isCustom },
             onPickStorageLocation: { [weak self] in
                 self?.pickStorageLocation()

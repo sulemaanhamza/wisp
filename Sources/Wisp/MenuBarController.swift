@@ -17,6 +17,8 @@ final class MenuBarController: NSObject {
         var onShowAbout: () -> Void
         var currentLaunchAtLogin: () -> Bool
         var onToggleLaunchAtLogin: () -> Void
+        var currentDismissOnOutsideClick: () -> Bool
+        var onToggleDismissOnOutsideClick: () -> Void
         var isStorageCustom: () -> Bool
         var onPickStorageLocation: () -> Void
         var onResetStorageLocation: () -> Void
@@ -60,6 +62,7 @@ final class MenuBarController: NSObject {
     @objc private func handleSetHotKey() { actions.onSetHotKey() }
     @objc private func handleShowAbout() { actions.onShowAbout() }
     @objc private func handleToggleLaunchAtLogin() { actions.onToggleLaunchAtLogin() }
+    @objc private func handleToggleDismissOnOutsideClick() { actions.onToggleDismissOnOutsideClick() }
     @objc private func handlePickStorageLocation() { actions.onPickStorageLocation() }
     @objc private func handleResetStorageLocation() { actions.onResetStorageLocation() }
     @objc private func handleRevealScratchpad() { actions.onRevealScratchpad() }
@@ -113,6 +116,10 @@ final class MenuBarController: NSObject {
         let launch = item("Launch at Login", #selector(handleToggleLaunchAtLogin))
         launch.state = actions.currentLaunchAtLogin() ? .on : .off
         menu.addItem(launch)
+
+        let outside = item("Close When Clicking Outside", #selector(handleToggleDismissOnOutsideClick))
+        outside.state = actions.currentDismissOnOutsideClick() ? .on : .off
+        menu.addItem(outside)
 
         menu.addItem(item("Storage Location…", #selector(handlePickStorageLocation)))
         if actions.isStorageCustom() {

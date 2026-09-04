@@ -778,6 +778,28 @@ enum SelfTests {
             check("bestScreen: restore leaves an external-monitor panel alone", false)
         }
 
+        // MARK: - Outside-click monitor lifecycle
+
+        // Pure-ish: the monitor object can be exercised without a panel.
+        // Real click delivery needs a GUI session and a second app, so
+        // that part is manual — this pins start/stop idempotence and
+        // that the default preference is off.
+        var fired = 0
+        let monitor = OutsideClickMonitor { fired += 1 }
+        check("outside-click: starts stopped", !monitor.isActive)
+        monitor.start()
+        check("outside-click: start activates", monitor.isActive)
+        monitor.start()
+        check("outside-click: starting twice is harmless", monitor.isActive)
+        monitor.stop()
+        check("outside-click: stop deactivates", !monitor.isActive)
+        monitor.stop()
+        check("outside-click: stopping twice is harmless", !monitor.isActive)
+        check("outside-click: never fired without a click", fired == 0)
+        check("outside-click: default preference is off",
+              !UserDefaults(suiteName: "wisp.selftest.\(UUID().uuidString)")!
+                .bool(forKey: OutsideClickMonitor.enabledKey))
+
         // MARK: - Summary
 
         let total = passed + failures.count

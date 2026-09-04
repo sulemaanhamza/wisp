@@ -14,6 +14,7 @@ final class PanelController {
     private let inner: NSView
     private let outer: NSView
     private var frameObservers: [NSObjectProtocol] = []
+    private var outsideClick: OutsideClickMonitor?
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -174,6 +175,30 @@ final class PanelController {
         }
 
         panel.onDismiss = { [weak self] in self?.dismiss() }
+
+        outsideClick = OutsideClickMonitor { [weak self] in
+            guard let self, self.panel.isVisible else { return }
+            // A click elsewhere while the user is mid-task in an overlay
+            // — rebinding the shortcut, reading the tour — shouldn't
+            // yank the panel away. Same set the Esc cascade protects.
+            if self.model.showHotKeyCapture || self.model.showTour { return }
+            self.dismiss()
+        }
+        model.onDismissPreferenceChange = { [weak self] in
+            self?.syncOutsideClickMonitor()
+        }
+    }
+
+    /// The monitor runs only while the panel is showing and the
+    /// preference is on. Every other moment it's stopped, so Wisp
+    /// isn't observing clicks it has no use for.
+    private func syncOutsideClickMonitor() {
+        guard let outsideClick else { return }
+        if panel.isVisible && model.dismissOnOutsideClick {
+            outsideClick.start()
+        } else {
+            outsideClick.stop()
+        }
     }
 
     func openIfNeeded() {
@@ -188,6 +213,7 @@ final class PanelController {
         guard panel.isVisible else { return }
         model.saveAndCheckpoint()
         panel.orderOut(nil)
+        syncOutsideClickMonitor()
     }
 
     func toggle() {
@@ -199,6 +225,7 @@ final class PanelController {
             // kept fresh by the move/resize observers).
             panel.makeKeyAndOrderFront(nil)
             applyChrome()
+            syncOutsideClickMonitor()
             // Pick up changes another Mac wrote to scratchpad.md while
             // we were dismissed — covers the iCloud/Dropbox sync case.
             // Cheap (one stat + maybe one read), so safe to do every

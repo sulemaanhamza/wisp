@@ -61,6 +61,7 @@ struct HelpOverlay: View {
                     ("Transparency", "how much desktop shows through"),
                     ("Set Shortcut…", "rebind the global hotkey"),
                     ("Launch at Login", "start automatically at login"),
+                    ("Close When Clicking Outside", "dismiss by clicking anywhere else"),
                     ("Storage Location…", "any folder — iCloud Drive, Dropbox for sync"),
                     ("Reveal in Finder", "scratchpad, Inbox, or version history"),
                 ])

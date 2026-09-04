@@ -4,6 +4,10 @@ Notable changes to Wisp. Newest first.
 
 ## Unreleased
 
+### Added
+
+- **Close When Clicking Outside.** Right-click the menu bar icon to turn it on. With it on, clicking anywhere outside Wisp — your editor, your browser, the desktop — dismisses the panel, the way Spotlight does. Off by default: if you keep Wisp floating beside another window while you work, nothing changes. Uses a mouse-only event monitor, so Wisp still asks for no permissions.
+
 ### Fixed
 
 - **A panel kept on an external monitor was dragged back to the laptop screen on every launch.** 0.1.43 started keeping the restored window inside the screen, but it used the main screen rather than the one the panel was actually on. It now restores to the screen it was saved on.
