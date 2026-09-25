@@ -9,7 +9,6 @@ struct Tip: Identifiable, Equatable {
     /// (`HelpContent.Row.tipKey`). The self-tests hold every tip to a
     /// real row, so a renamed row can't silently orphan one.
     let keys: String
-    let what: String
 
     var id: String { keys + version }
 }
@@ -31,28 +30,17 @@ enum Tips {
     static let seenKey = "SeenTipsVersion"
 
     static let all: [Tip] = [
-        Tip(version: "0.1.44", keys: "⌘L",
-            what: "make a line a task, or tick it off"),
-        Tip(version: "0.1.44", keys: "⌥↑ ⌥↓",
-            what: "move the line up or down"),
-        Tip(version: "0.1.44", keys: "⌘-click",
-            what: "open a link"),
-        Tip(version: "0.1.44", keys: "⌘- ⌘= ⌘0",
-            what: "text size, now with a fourth, larger step"),
-        Tip(version: "0.1.44", keys: "Font",
-            what: "right-click the menu bar icon — San Francisco and Verdana"),
-        Tip(version: "0.1.42", keys: "- [ ]",
-            what: "checklist — click a box to tick it off"),
-        Tip(version: "0.1.42", keys: "⇧⌘↩",
-            what: "file this note in the Inbox, start fresh"),
-        Tip(version: "0.1.41", keys: "⌘F",
-            what: "find anything (↵ / ⇧↵ to step through)"),
-        Tip(version: "0.1.42", keys: "`code` ```",
-            what: "monospace, inline or fenced"),
-        Tip(version: "0.1.42", keys: "Transparency",
-            what: "right-click the menu bar icon — how much shows through"),
-        Tip(version: "0.1.42", keys: "Reveal in Finder",
-            what: "right-click → History, for earlier versions of a note"),
+        Tip(version: "0.1.44", keys: "⌘L"),
+        Tip(version: "0.1.44", keys: "⌥↑ ⌥↓"),
+        Tip(version: "0.1.44", keys: "⌘-click"),
+        Tip(version: "0.1.44", keys: "⌘- ⌘= ⌘0"),
+        Tip(version: "0.1.44", keys: "Font"),
+        Tip(version: "0.1.42", keys: "- [ ]"),
+        Tip(version: "0.1.42", keys: "⇧⌘↩"),
+        Tip(version: "0.1.41", keys: "⌘F"),
+        Tip(version: "0.1.42", keys: "`code` ```"),
+        Tip(version: "0.1.42", keys: "Transparency"),
+        Tip(version: "0.1.42", keys: "Reveal in Finder"),
     ]
 
     /// Newest version in the list. Derived, so adding a tip is the only
@@ -65,7 +53,7 @@ enum Tips {
     /// marker means someone who updated into this feature, so they get
     /// everything — including the older entries they may well have
     /// never found.
-    static func unseen(since seen: String?, limit: Int = 6) -> [Tip] {
+    static func unseen(since seen: String?, limit: Int = .max) -> [Tip] {
         guard let seen else { return Array(all.prefix(limit)) }
         return Array(all.filter { isOlder(seen, $0.version) }.prefix(limit))
     }

@@ -52,6 +52,8 @@ struct HotKey: Equatable, Sendable {
         let key: String
         if keyCode == UInt32(kVK_Space) {
             key = " "
+        } else if keyCode == UInt32(kVK_ANSI_Minus) {
+            key = "-"  // keyName spells it with a typographic minus
         } else if name.count == 1, let scalar = name.unicodeScalars.first,
                   scalar.isASCII, !CharacterSet.controlCharacters.contains(scalar) {
             key = name.lowercased()

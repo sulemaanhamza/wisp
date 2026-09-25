@@ -256,6 +256,11 @@ struct MinimalTextEditor: NSViewRepresentable {
         /// The find match currently painted, so the next step only has
         /// to restyle that one range instead of the whole note.
         var lastHighlight: NSRange?
+        /// True when the pending change is one typed character, the only
+        /// kind of edit that may complete a shortcode. Whole-line edits
+        /// (⌘L, ⌥↑) and pastes carry text that happens to end in `:)`
+        /// and must arrive exactly as written.
+        private var typedSingleCharacter = false
         private var widthObserver: NSObjectProtocol?
 
         init(text: Binding<String>) {
@@ -326,7 +331,9 @@ struct MinimalTextEditor: NSViewRepresentable {
             // A shortcode replacement calls didChangeText(), which
             // re-enters this method; that nested call does the restyle,
             // so bail out rather than styling the same text twice.
-            if EmojiReplace.replaceIfMatched(in: textView) { return }
+            let mayCompleteShortcode = typedSingleCharacter
+            typedSingleCharacter = false
+            if mayCompleteShortcode, EmojiReplace.replaceIfMatched(in: textView) { return }
 
             // Mid-composition (Japanese, Chinese, dead keys) the marked
             // text carries the input method's own underline; restyling
@@ -374,6 +381,13 @@ struct MinimalTextEditor: NSViewRepresentable {
             let state = NSRange(location: box.location + 1, length: 1)
             let current = (textView.string as NSString).substring(with: state)
             replace(in: textView, range: state, with: current == " " ? "x" : " ")
+        }
+
+        /// Whether `location` is inside a fenced code block, as of the
+        /// last restyle — which ran on the previous keystroke.
+        private static func isInCodeBlock(_ textView: NSTextView, at location: Int) -> Bool {
+            guard let storage = textView.textStorage, location < storage.length else { return false }
+            return storage.attribute(.wispCodeBlock, at: location, effectiveRange: nil) != nil
         }
 
         /// The link under `point`, if any.
@@ -429,6 +443,9 @@ struct MinimalTextEditor: NSViewRepresentable {
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
+            typedSingleCharacter = affectedCharRange.length == 0
+                && (replacementString as NSString?)?.length == 1
+
             // Only single-char `-` insertions count. Pastes (multi-char) and
             // undo restorations have different replacement strings, so they
             // skip this path naturally.
@@ -456,7 +473,9 @@ struct MinimalTextEditor: NSViewRepresentable {
             // Trigger only when the line up to the cursor is exactly "--" and
             // the rest of the line is empty — i.e., user is finishing "---"
             // at the end of a fresh line, not editing inside content.
-            guard beforeCursor == "--", afterCursor.isEmpty else { return true }
+            // Inside a fenced block `---` is code (a diff header, YAML).
+            guard beforeCursor == "--", afterCursor.isEmpty,
+                  !Self.isInCodeBlock(textView, at: lineRange.location) else { return true }
 
             let twoDashRange = NSRange(location: lineRange.location, length: 2)
             replaceWithHorizontalRule(in: textView, range: twoDashRange)
@@ -478,7 +497,8 @@ struct MinimalTextEditor: NSViewRepresentable {
 
             // Fallback path: catches `---` that arrived via paste, where the
             // typed-character interceptor above wouldn't fire.
-            if SmartEditing.isHorizontalRuleTrigger(line) {
+            if SmartEditing.isHorizontalRuleTrigger(line),
+               !Self.isInCodeBlock(textView, at: lineRange.location) {
                 let replaceRange = NSRange(
                     location: lineRange.location,
                     length: lineEnd - lineRange.location

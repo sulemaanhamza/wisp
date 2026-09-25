@@ -20,16 +20,25 @@ extension NSAttributedString.Key {
 enum MarkdownStyler {
     nonisolated static let lineHeightMultiple: CGFloat = 1.35
 
-    private static let boldPattern = try! NSRegularExpression(pattern: #"\*\*([^*\n]+)\*\*"#)
-    private static let italicPattern = try! NSRegularExpression(pattern: #"\*([^*\n]+)\*"#)
-    private static let codePattern = try! NSRegularExpression(pattern: #"`([^`\n]+)`"#)
+    // Spans never cross a line break of any kind: a paragraph restyle
+    // only sees whole paragraphs, and NSString ends those at CR and
+    // U+2029 as well as LF. Emphasis must touch a word at both ends —
+    // markdown's own rule — so a `* ` bullet or `a * b` isn't a marker.
+    private static let boldPattern = try! NSRegularExpression(
+        pattern: #"\*\*([^\s*](?:[^*\n\r\u2029]*[^\s*])?)\*\*"#
+    )
+    private static let italicPattern = try! NSRegularExpression(
+        pattern: #"\*([^\s*](?:[^*\n\r\u2029]*[^\s*])?)\*"#
+    )
+    private static let codePattern = try! NSRegularExpression(pattern: #"`([^`\n\r\u2029]+)`"#)
     private static let headingPattern = try! NSRegularExpression(pattern: #"^(#{1,6})\s+\S"#)
-    /// http(s) URLs, not ending on sentence punctuation. A pattern
-    /// rather than NSDataDetector: the detector's answer for a line
-    /// depends on the text around it, which a paragraph restyle can't
-    /// reproduce.
+    /// http(s) URLs, not ending on sentence punctuation. Parentheses
+    /// count only in balanced pairs, so `(see https://x.io)` stops at
+    /// the `)` while `…/wiki/Foo_(bar)` keeps it. A pattern rather than
+    /// NSDataDetector: the detector's answer for a line depends on the
+    /// text around it, which a paragraph restyle can't reproduce.
     private static let linkPattern = try! NSRegularExpression(
-        pattern: #"\bhttps?://[^\s<>"'`]*[^\s<>"'`.,;:!?)\]*]"#
+        pattern: #"\bhttps?://(?:[^\s<>"'`()\[\]]|\([^\s<>"'`()]*\))*(?:[^\s<>"'`.,;:!?()\[\]*]|\([^\s<>"'`()]*\))"#
     )
 
     nonisolated static func bodyParagraph() -> NSParagraphStyle {
@@ -181,15 +190,29 @@ enum MarkdownStyler {
             )
         }
 
-        boldPattern.enumerateMatches(in: text, range: range) { match, _, _ in
+        // Code first: inside a span everything is literal, so the other
+        // passes skip anything that starts or ends in one.
+        codePattern.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let r = match?.range, !inCodeBlock(r) else { return }
+            storage.addAttributes([.font: style.mono, .backgroundColor: style.codeBackground], range: r)
+            dim(r.location, 1)
+            dim(NSMaxRange(r) - 1, 1)
+        }
+        func isCode(_ r: NSRange) -> Bool {
+            inCodeBlock(r)
+                || storage.attribute(.backgroundColor, at: r.location, effectiveRange: nil) != nil
+                || storage.attribute(.backgroundColor, at: NSMaxRange(r) - 1, effectiveRange: nil) != nil
+        }
+
+        boldPattern.enumerateMatches(in: text, range: range) { match, _, _ in
+            guard let r = match?.range, !isCode(r) else { return }
             let current = storage.attribute(.font, at: r.location, effectiveRange: nil) as? NSFont
             storage.addAttribute(.font, value: style.adding(.bold, to: current), range: r)
             dim(r.location, 2)
             dim(NSMaxRange(r) - 2, 2)
         }
         italicPattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let r = match?.range, !inCodeBlock(r) else { return }
+            guard let r = match?.range, !isCode(r) else { return }
             // A `*` on either side means this is half of a **bold**.
             if r.location > 0, ns.character(at: r.location - 1) == 0x2A { return }
             if NSMaxRange(r) < ns.length, ns.character(at: NSMaxRange(r)) == 0x2A { return }
@@ -198,23 +221,25 @@ enum MarkdownStyler {
             dim(r.location, 1)
             dim(NSMaxRange(r) - 1, 1)
         }
-        codePattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let r = match?.range, !inCodeBlock(r) else { return }
-            storage.addAttributes([.font: style.mono, .backgroundColor: style.codeBackground], range: r)
-            dim(r.location, 1)
-            dim(NSMaxRange(r) - 1, 1)
-        }
         linkPattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            // Inline code is the one other place a URL is just text.
-            guard let r = match?.range, !inCodeBlock(r),
-                  storage.attribute(.backgroundColor, at: r.location, effectiveRange: nil) == nil,
-                  let url = URL(string: ns.substring(with: r)) else { return }
+            guard let r = match?.range, !isCode(r),
+                  let url = linkURL(ns.substring(with: r)) else { return }
             storage.addAttributes([
                 .wispLink: url,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
                 .underlineColor: style.syntax,
             ], range: r)
         }
+    }
+
+    /// The URL for a matched link. macOS 13's URL(string:) rejects
+    /// anything not already escaped — `Straße`, a `|` in a query — so
+    /// those are percent-encoded rather than left unclickable.
+    static func linkURL(_ text: String) -> URL? {
+        if let url = URL(string: text) { return url }
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.insert(charactersIn: "#%")
+        return text.addingPercentEncoding(withAllowedCharacters: allowed).flatMap(URL.init(string:))
     }
 
     // MARK: Fences

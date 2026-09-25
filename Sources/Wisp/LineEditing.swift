@@ -20,10 +20,26 @@ enum LineEditing {
     static func lineRange(for selection: NSRange, in ns: NSString) -> NSRange {
         var covered = selection
         if covered.length > 0, NSMaxRange(covered) > 0,
-           ns.character(at: NSMaxRange(covered) - 1) == 0x0A {
+           isLineBreak(ns.character(at: NSMaxRange(covered) - 1)) {
             covered.length -= 1
         }
         return ns.lineRange(for: covered)
+    }
+
+    /// Everything NSString.lineRange ends a line at: LF, CR (alone or
+    /// before LF), and the Unicode line and paragraph separators — ⌃↩
+    /// types U+2028, and a note edited on Windows arrives with CRLF.
+    private static func isLineBreak(_ c: unichar) -> Bool {
+        c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029
+    }
+
+    /// A line split into its text and whatever ends it ("" for the last
+    /// line of a note).
+    static func splitTerminator(_ line: String) -> (body: String, terminator: String) {
+        let ns = line as NSString
+        var end = ns.length
+        while end > 0, isLineBreak(ns.character(at: end - 1)) { end -= 1 }
+        return (ns.substring(to: end), ns.substring(from: end))
     }
 
     static func moveLines(in text: String, selection: NSRange, up: Bool) -> Edit? {
@@ -46,23 +62,27 @@ enum LineEditing {
             let below = ns.lineRange(for: NSRange(location: NSMaxRange(lines), length: 0))
             let (other, moved) = swapped(ns.substring(with: below), ns.substring(with: lines))
             let shift = (other as NSString).length
+            let replacement = other + moved
+            // The last line may have gained a line break it's about to
+            // give away; keep the selection inside the text either way.
+            let end = lines.location + (replacement as NSString).length
+            let location = min(lines.location + shift + (selection.location - lines.location), end)
             return Edit(
                 range: NSRange(location: lines.location, length: lines.length + below.length),
-                replacement: other + moved,
-                selection: NSRange(
-                    location: lines.location + shift + (selection.location - lines.location),
-                    length: selection.length
-                )
+                replacement: replacement,
+                selection: NSRange(location: location, length: min(selection.length, end - location))
             )
         }
     }
 
     /// Put `first` before `second`. Only the last line of a document
-    /// lacks a newline, so when it moves the newline has to move with
-    /// the join rather than with the line.
+    /// lacks a line break, so when it moves, the break that joined the
+    /// two stays at the join — whichever kind of break it was.
     private static func swapped(_ first: String, _ second: String) -> (String, String) {
-        guard !first.hasSuffix("\n") else { return (first, second) }
-        return (first + "\n", String(second.dropLast()))
+        let (body, terminator) = splitTerminator(first)
+        guard terminator.isEmpty else { return (first, second) }
+        let other = splitTerminator(second)
+        return (body + other.terminator, other.body)
     }
 
     /// ⌘L: a plain line becomes `- [ ] line`, a bullet gains a box, and
@@ -77,12 +97,10 @@ enum LineEditing {
         var location = lines.location
         while location < NSMaxRange(lines) || (index == 0 && lines.length == 0) {
             let line = ns.lineRange(for: NSRange(location: location, length: 0))
-            var content = ns.substring(with: line)
-            let newline = content.hasSuffix("\n")
-            if newline { content.removeLast() }
+            let (content, terminator) = splitTerminator(ns.substring(with: line))
             let toggled = toggleTask(line: content)
             if index == 0 { firstDelta = (toggled as NSString).length - (content as NSString).length }
-            out.append(toggled + (newline ? "\n" : ""))
+            out.append(toggled + terminator)
             index += 1
             if line.length == 0 { break }
             location = NSMaxRange(line)
@@ -104,26 +122,25 @@ enum LineEditing {
     }
 
     static func toggleTask(line: String) -> String {
+        if let toggled = Checkbox.toggling(line) { return toggled }
         let ns = line as NSString
-        if let box = Checkbox.boxRange(in: line) {
-            let state = ns.character(at: box.location + 1)
-            return ns.replacingCharacters(
-                in: NSRange(location: box.location + 1, length: 1),
-                with: state == 0x20 ? "x" : " "
-            )
-        }
         let indentEnd = leadingWhitespace(ns)
         let indent = ns.substring(to: indentEnd)
         let rest = ns.substring(from: indentEnd)
-        for bullet in ["- ", "* ", "+ "] where rest.hasPrefix(bullet) {
-            return indent + bullet + "[ ] " + rest.dropFirst(bullet.count)
+        // A bullet keeps its marker; whatever separated it from the text
+        // becomes the single space a task item needs.
+        if let first = rest.first, "-*+".contains(first),
+           rest.dropFirst().first == " " || rest.dropFirst().first == "\t" {
+            let text = rest.dropFirst(2).drop { $0 == " " || $0 == "\t" }
+            return indent + String(first) + " [ ] " + text
         }
         return indent + "- [ ] " + rest
     }
 
     /// Offset just past a task's `] `, within the first line of `text`.
     private static func taskTextStart(in text: String) -> Int {
-        let firstLine = text.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        let ns = text as NSString
+        let firstLine = splitTerminator(ns.substring(with: ns.lineRange(for: NSRange(location: 0, length: 0)))).body
         guard let box = Checkbox.boxRange(in: firstLine) else { return 0 }
         return min(NSMaxRange(box) + 1, (firstLine as NSString).length)
     }
@@ -140,8 +157,10 @@ enum LineEditing {
     static func apply(_ edit: Edit, to textView: NSTextView) {
         guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
         textView.textStorage?.replaceCharacters(in: edit.range, with: edit.replacement)
-        textView.didChangeText()
+        // Selection first: didChangeText hands the text to observers
+        // that read the caret, and it should already be where it lands.
         textView.setSelectedRange(edit.selection)
+        textView.didChangeText()
         textView.scrollRangeToVisible(edit.selection)
     }
 }

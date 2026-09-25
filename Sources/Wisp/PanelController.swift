@@ -15,12 +15,9 @@ final class PanelController {
     private let outer: NSView
     private var frameObservers: [NSObjectProtocol] = []
     private var outsideClick: OutsideClickMonitor?
-    /// True while the dismiss fade runs. The panel is still ordered in,
-    /// so `isVisible` alone would call it open.
-    private var isHiding = false
-
-    /// On screen and staying there.
-    private var isShown: Bool { panel.isVisible && !isHiding }
+    /// Where "Open on Pointer's Screen" last put the panel. A frame
+    /// Wisp chose isn't the user's placement, so it isn't saved.
+    private var carriedFrame: NSRect?
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -141,11 +138,15 @@ final class PanelController {
         for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification] {
             let token = NotificationCenter.default.addObserver(
                 forName: name, object: panel, queue: .main
-            ) { [weak panel] _ in
+            ) { [weak self, weak panel] _ in
                 // queue: .main guarantees this runs on the main actor;
                 // assumeIsolated lets us touch panel.frame without a hop.
                 MainActor.assumeIsolated {
                     guard let panel else { return }
+                    if let carried = self?.carriedFrame {
+                        if panel.frame == carried { return }
+                        self?.carriedFrame = nil
+                    }
                     guard let screen = panel.screen?.visibleFrame
                             ?? NSScreen.main?.visibleFrame else { return }
                     let fitted = PanelFrameStore.clamped(panel.frame, to: screen)
@@ -184,11 +185,15 @@ final class PanelController {
         panel.onDismiss = { [weak self] in self?.dismiss() }
 
         outsideClick = OutsideClickMonitor { [weak self] in
-            guard let self, self.isShown else { return }
+            guard let self, self.panel.isVisible else { return }
             // A click elsewhere while the user is mid-task in an overlay
             // — rebinding the shortcut, reading the tour — shouldn't
             // yank the panel away. Same set the Esc cascade protects.
             if self.model.showHotKeyCapture || self.model.showTour { return }
+            // Mid-composition, a click on the input method's candidate
+            // window or accent picker belongs to Wisp's own typing, even
+            // though another process draws it.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return }
             self.dismiss()
         }
         model.onDismissPreferenceChange = { [weak self] in
@@ -201,7 +206,7 @@ final class PanelController {
     /// isn't observing clicks it has no use for.
     private func syncOutsideClickMonitor() {
         guard let outsideClick else { return }
-        if isShown && model.dismissOnOutsideClick {
+        if panel.isVisible && model.dismissOnOutsideClick {
             outsideClick.start()
         } else {
             outsideClick.stop()
@@ -209,45 +214,30 @@ final class PanelController {
     }
 
     func openIfNeeded() {
-        if !isShown {
+        if !panel.isVisible {
             toggle()
         }
     }
 
     /// Every dismissal funnels through here: flush the pending save,
-    /// checkpoint history, then fade out. The save happens first, so
-    /// nothing depends on the fade finishing.
+    /// checkpoint history, then hide.
+    ///
+    /// Hidden at once, not faded. A panel that's fading out is still
+    /// the key window, so whatever the user types next — they've just
+    /// dismissed it to type somewhere else — would land in the note.
     func dismiss() {
-        guard isShown else { return }
+        guard panel.isVisible else { return }
         model.saveAndCheckpoint()
-        isHiding = true
+        panel.orderOut(nil)
         syncOutsideClickMonitor()
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.10
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                // Summoned again mid-fade: toggle() cleared the flag and
-                // is fading back in, so leave the panel where it is.
-                guard let self, self.isHiding else { return }
-                self.isHiding = false
-                self.panel.orderOut(nil)
-                self.panel.alphaValue = 1
-            }
-        })
     }
 
     func toggle() {
-        if isShown {
+        if panel.isVisible {
             dismiss()
         } else {
-            let wasVisible = panel.isVisible
-            isHiding = false
-            if !wasVisible {
-                moveToPointerScreenIfWanted()
-                panel.alphaValue = 0
-            }
+            moveToPointerScreenIfWanted()
+            panel.alphaValue = 0
             // No re-centering — the panel keeps the size and position the
             // user last left it (restored from PanelFrameStore on launch,
             // kept fresh by the move/resize observers).
@@ -294,10 +284,14 @@ final class PanelController {
         guard let target = NSScreen.screens.first(where: { NSMouseInRect(pointer, $0.frame, false) }),
               let current = panel.screen,
               target != current else { return }
-        var frame = panel.frame
-        frame.origin.x += target.visibleFrame.minX - current.visibleFrame.minX
-        frame.origin.y += target.visibleFrame.minY - current.visibleFrame.minY
-        panel.setFrame(PanelFrameStore.clamped(frame, to: target.visibleFrame), display: false)
+        // The size the user chose, not whatever a smaller screen last
+        // squeezed it to.
+        let size = PanelFrameStore.load()?.size ?? panel.frame.size
+        let frame = PanelFrameStore.carried(
+            panel.frame, size: size, from: current.visibleFrame, to: target.visibleFrame
+        )
+        carriedFrame = frame
+        panel.setFrame(frame, display: false)
     }
 
     private func applyChrome() {

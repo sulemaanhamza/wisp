@@ -92,10 +92,16 @@ final class MenuBarController: NSObject {
     private func showContextMenu() {
         let menu = NSMenu()
 
-        let open = item("Open Wisp", #selector(openFromMenu), symbol: "macwindow")
-        // The global shortcut shows where macOS shows shortcuts, rather
-        // than spelled out in a title.
-        if let (key, modifiers) = actions.currentHotKey().menuKeyEquivalent {
+        // The global shortcut shows where macOS shows shortcuts. Keys a
+        // menu can't draw that way (F-keys, arrows, Return) are spelled
+        // out in the title instead, so it's never missing.
+        let hotKey = actions.currentHotKey()
+        let equivalent = hotKey.menuKeyEquivalent
+        let open = item(
+            equivalent == nil ? "Open Wisp  (\(hotKey.displayString))" : "Open Wisp",
+            #selector(openFromMenu), symbol: "macwindow"
+        )
+        if let (key, modifiers) = equivalent {
             open.keyEquivalent = key
             open.keyEquivalentModifierMask = modifiers
         }

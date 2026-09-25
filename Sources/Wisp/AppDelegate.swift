@@ -132,27 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func setSmallFont(_ sender: Any?) { model.fontSize = .small }
     @objc func setMediumFont(_ sender: Any?) { model.fontSize = .medium }
     @objc func setLargeFont(_ sender: Any?) { model.fontSize = .large }
+    @objc func setExtraLargeFont(_ sender: Any?) { model.fontSize = .extraLarge }
     @objc func makeTextLarger(_ sender: Any?) { model.makeTextLarger() }
     @objc func makeTextSmaller(_ sender: Any?) { model.makeTextSmaller() }
     @objc func resetTextSize(_ sender: Any?) { model.resetTextSize() }
 
-    @objc func moveLineUp(_ sender: Any?) { moveLines(up: true) }
-    @objc func moveLineDown(_ sender: Any?) { moveLines(up: false) }
-
-    private func moveLines(up: Bool) {
-        guard let textView = scratchpadTextView(),
-              let edit = LineEditing.moveLines(
-                in: textView.string, selection: textView.selectedRange(), up: up
-              ) else { return }
-        LineEditing.apply(edit, to: textView)
-    }
-
-    /// The line commands act only on the note. Disabled anywhere else,
-    /// the key goes to whatever has focus instead — ⌥↑ in the find
-    /// field still moves to its start.
+    /// ⌘L acts only on the note, not on the find field.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
-        case #selector(moveLineUp(_:)), #selector(moveLineDown(_:)), #selector(toggleTask(_:)):
+        case #selector(toggleTask(_:)):
             return scratchpadTextView() != nil
         default:
             return true

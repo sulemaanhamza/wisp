@@ -1,10 +1,14 @@
 import SwiftUI
+import AppKit
+import Carbon.HIToolbox
 
 /// First-run welcome card. Three essential tips and a single "Got it"
 /// (Return works too). Dismisses on a click outside the card or Esc.
 struct TourOverlay: View {
     let theme: Theme
     let onDismiss: () -> Void
+
+    @State private var monitor: Any?
 
     var body: some View {
         ZStack {
@@ -24,12 +28,35 @@ struct TourOverlay: View {
                         Text("Got it")
                             .frame(minWidth: 72)
                     }
-                    .keyboardShortcut(.defaultAction)
                     .pointerCursor()
                 }
                 .padding(.top, 8)
             }
             .overlayCard(theme: theme, maxWidth: 400)
+        }
+        .onAppear { startListening() }
+        .onDisappear { stopListening() }
+    }
+
+    /// Return means "Got it". A keyboard shortcut on the button can't do
+    /// this: the note keeps keyboard focus under the card, so it would
+    /// take the Return first — as a newline in the text behind.
+    private func startListening() {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            switch Int(event.keyCode) {
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                onDismiss()
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func stopListening() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
     }
 

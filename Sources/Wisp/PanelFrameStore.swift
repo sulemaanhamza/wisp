@@ -66,6 +66,20 @@ enum PanelFrameStore {
         return result
     }
 
+    /// Pure: `frame` moved from one screen to another, at `size`, with
+    /// its centre at the same fraction across and up the new screen as
+    /// it was on the old one — centred stays centred — then fitted.
+    static func carried(_ frame: NSRect, size: NSSize, from: NSRect, to: NSRect) -> NSRect {
+        let fx = from.width > 0 ? (frame.midX - from.minX) / from.width : 0.5
+        let fy = from.height > 0 ? (frame.midY - from.minY) / from.height : 0.5
+        let center = NSPoint(x: to.minX + fx * to.width, y: to.minY + fy * to.height)
+        let moved = NSRect(
+            x: center.x - size.width / 2, y: center.y - size.height / 2,
+            width: size.width, height: size.height
+        )
+        return clamped(moved, to: to)
+    }
+
     static func load(defaults: UserDefaults = .standard) -> NSRect? {
         guard let s = defaults.string(forKey: key) else { return nil }
         let rect = NSRectFromString(s)

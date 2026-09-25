@@ -40,16 +40,23 @@ enum FontSize: String, CaseIterable {
 final class EditorModel: ObservableObject {
     @Published var text: String = "" {
         didSet {
-            // Published only on change: every assignment re-renders the
-            // header bar, and most keystrokes don't touch a heading.
+            // Published only when the outline changes: every assignment
+            // re-renders the header bar, and typing above a heading moves
+            // its offset without changing what the bar shows.
             let parsed = text.extractHeadings()
-            if parsed != headings { headings = parsed }
+            headingOffsets = parsed.map(\.lineStart)
+            if !parsed.map({ [$0.name, String($0.level)] }).elementsEqual(headings.map({ [$0.name, String($0.level)] })) {
+                headings = parsed
+            }
             scheduleWordCount()
             guard didLoad, !isReloading else { return }
             scheduleSave()
         }
     }
     @Published private(set) var headings: [Heading] = []
+    /// Where each of `headings` starts right now; kept current on every
+    /// keystroke without republishing.
+    private var headingOffsets: [Int] = []
     /// Trails typing slightly. It's a quiet footer figure, and counting
     /// words walks the whole note.
     @Published private(set) var wordCount: Int = 0
@@ -64,8 +71,8 @@ final class EditorModel: ObservableObject {
     @Published var showHotKeyCapture: Bool = false
     @Published var showFirstRunHint: Bool = false
     /// Tips this user hasn't been shown, fixed for the session so the
-    /// "New" group doesn't vanish out from under them the moment the
-    /// dot is marked seen.
+    /// "New" tags don't vanish out from under them the moment the dot
+    /// is marked seen.
     @Published private(set) var newTips: [Tip] = []
     /// Drives the dot on the `?`. Cleared as soon as they look.
     @Published private(set) var hasUnseenTips: Bool = false
@@ -468,7 +475,8 @@ final class EditorModel: ObservableObject {
     }
 
     func jumpTo(_ heading: Heading) {
-        scrollTarget = heading.lineStart
+        guard let index = headings.firstIndex(of: heading), index < headingOffsets.count else { return }
+        scrollTarget = headingOffsets[index]
         scrollToken &+= 1
     }
 

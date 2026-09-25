@@ -6,7 +6,7 @@ Notable changes to Wisp. Newest first.
 
 ### Added
 
-- **Move lines with ⌥↑ and ⌥↓.** The line the caret is on, or every line you've selected, moves up or down past its neighbour.
+- **Move lines with ⌥↑ and ⌥↓.** The line the caret is on, or every line you've selected, moves up or down past its neighbour. In the note these keys used to jump to the start or end of a paragraph; everywhere else, including the find field, they still do.
 - **⌘L makes a line a task.** A plain line becomes `- [ ] line`, a bullet gains a box, and pressing it again ticks the box off.
 - **Links open with ⌘-click.** Any `https://` address in a note is underlined faintly; hold ⌘ and click to open it. A plain click still puts the caret there, so a link is as easy to edit as any other text.
 - **⌘= and ⌘- change the text size**, and ⌘0 goes back to the default. There's a fourth, larger step too.
@@ -16,14 +16,14 @@ Notable changes to Wisp. Newest first.
 
 ### Fixed
 
-- **The panel could be resized down to a sliver.** Past a point the footer broke and, narrowed far enough, the panel all but disappeared. It now stops at 440×280, and a smaller size saved by an earlier version grows back to that on the next launch.
+- **The panel could be resized down to a sliver.** Past a point the footer broke and, narrowed far enough, the panel all but disappeared. It now stops at 440×280. A panel left smaller by an earlier version comes back at a usable size on the next launch.
 - A `---` line inside a fenced code block no longer draws a divider through the code.
 - **A panel kept on an external monitor was dragged back to the laptop screen on every launch.** 0.1.43 started keeping the restored window inside the screen, but it used the main screen rather than the one the panel was actually on. It now restores to the screen it was saved on.
 
 ### Changed
 
 - **Typing stays instant in long notes.** Every keystroke used to restyle the whole note — about 13 ms at 10 KB, and close to half a second at 100 KB. Wisp now restyles only the paragraph you're editing, unless the edit opens or closes a code block, which can change lines far away. A keystroke now takes about 0.2 ms at 10 KB and under 1 ms at 100 KB. The heading list and word count stopped re-running on every keystroke too.
-- **The panel fades in and out** instead of appearing and vanishing in a single frame.
+- **The panel fades in** instead of appearing in a single frame. It still disappears at once, so anything you type straight after dismissing it goes where you meant it to.
 - **Easier on the eye.** Markdown's own marks — `#`, `**`, backticks, fence lines — are dimmed so the words read first. Headings step up more clearly (H1 1.4×, H2 1.2×). Lines are a little tighter, and in a wide panel the text stays in a column of about 70 characters instead of running edge to edge.
 - **The dark panel has an edge.** A hairline border keeps it from dissolving into a dark desktop, matching the light theme's.
 - **Selection follows your accent colour** in both themes.

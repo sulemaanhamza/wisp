@@ -95,29 +95,13 @@ enum MainMenuBuilder {
         )
         taskItem.target = target
         formatMenu.addItem(taskItem)
-        let upItem = NSMenuItem(
-            title: "Move Line Up",
-            action: #selector(AppDelegate.moveLineUp(_:)),
-            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
-        )
-        upItem.keyEquivalentModifierMask = [.option]
-        upItem.target = target
-        formatMenu.addItem(upItem)
-        let downItem = NSMenuItem(
-            title: "Move Line Down",
-            action: #selector(AppDelegate.moveLineDown(_:)),
-            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
-        )
-        downItem.keyEquivalentModifierMask = [.option]
-        downItem.target = target
-        formatMenu.addItem(downItem)
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         let smallItem = NSMenuItem(
-            title: "Smaller Text",
+            title: "Small Text",
             action: #selector(AppDelegate.setSmallFont(_:)),
             keyEquivalent: "1"
         )
@@ -131,12 +115,19 @@ enum MainMenuBuilder {
         mediumItem.target = target
         viewMenu.addItem(mediumItem)
         let largeItem = NSMenuItem(
-            title: "Larger Text",
+            title: "Large Text",
             action: #selector(AppDelegate.setLargeFont(_:)),
             keyEquivalent: "3"
         )
         largeItem.target = target
         viewMenu.addItem(largeItem)
+        let extraLargeItem = NSMenuItem(
+            title: "Largest Text",
+            action: #selector(AppDelegate.setExtraLargeFont(_:)),
+            keyEquivalent: "4"
+        )
+        extraLargeItem.target = target
+        viewMenu.addItem(extraLargeItem)
         viewMenu.addItem(NSMenuItem.separator())
         for (title, action, key) in [
             ("Bigger", #selector(AppDelegate.makeTextLarger(_:)), "="),
