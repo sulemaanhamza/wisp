@@ -4,12 +4,37 @@ Notable changes to Wisp. Newest first.
 
 ## Unreleased
 
+### Added
+
+- **Move lines with ⌥↑ and ⌥↓.** The line the caret is on, or every line you've selected, moves up or down past its neighbour. In the note these keys used to jump to the start or end of a paragraph; everywhere else, including the find field, they still do.
+- **⌘L makes a line a task.** A plain line becomes `- [ ] line`, a bullet gains a box, and pressing it again ticks the box off.
+- **Links open with ⌘-click.** Any `https://` address in a note is underlined faintly; hold ⌘ and click to open it. A plain click still puts the caret there, so a link is as easy to edit as any other text.
+- **⌘= and ⌘- change the text size**, and ⌘0 goes back to the default. There's a fourth, larger step too.
+- **San Francisco and Verdana** in the Font menu, for anyone who wants a plain sans rather than a serif. ([#11](https://github.com/sulemaanhamza/wisp/issues/11))
+- **Open on Pointer's Screen.** Right-click the menu bar icon to turn it on. With more than one display, the panel opens on the screen the pointer is on, in the same spot relative to that screen. Off by default.
+- **Close When Clicking Outside.** Right-click the menu bar icon to turn it on. With it on, clicking anywhere outside Wisp — your editor, your browser, the desktop — dismisses the panel, the way Spotlight does. Off by default: if you keep Wisp floating beside another window while you work, nothing changes. Uses a mouse-only event monitor, so Wisp still asks for no permissions.
+
 ### Fixed
 
+- **The panel could be resized down to a sliver.** Past a point the footer broke and, narrowed far enough, the panel all but disappeared. It now stops at 440×280. A panel left smaller by an earlier version comes back at a usable size on the next launch.
+- A `---` line inside a fenced code block no longer draws a divider through the code.
 - **A panel kept on an external monitor was dragged back to the laptop screen on every launch.** 0.1.43 started keeping the restored window inside the screen, but it used the main screen rather than the one the panel was actually on. It now restores to the screen it was saved on.
 
 ### Changed
 
+- **Typing stays instant in long notes.** Every keystroke used to restyle the whole note — about 13 ms at 10 KB, and close to half a second at 100 KB. Wisp now restyles only the paragraph you're editing, unless the edit opens or closes a code block, which can change lines far away. A keystroke now takes about 0.2 ms at 10 KB and under 1 ms at 100 KB. The heading list and word count stopped re-running on every keystroke too.
+- **The panel fades in** instead of appearing in a single frame. It still disappears at once, so anything you type straight after dismissing it goes where you meant it to.
+- **Easier on the eye.** Markdown's own marks — `#`, `**`, backticks, fence lines — are dimmed so the words read first. Headings step up more clearly (H1 1.4×, H2 1.2×). Lines are a little tighter, and in a wide panel the text stays in a column of about 70 characters instead of running edge to edge.
+- **The dark panel has an edge.** A hairline border keeps it from dissolving into a dark desktop, matching the light theme's.
+- **Selection follows your accent colour** in both themes.
+- **A new app icon** on Apple's icon grid: a rounded tile with a margin and a soft shadow, instead of a full-bleed square. It no longer shows as a hard square on older macOS, or shrunk into a grey tile on macOS 26.
+- **The caret is the height of the text.** It used to span the whole line, extra spacing included, so it stood about a third taller than the letters beside it.
+- **A clearer shortcuts sheet.** Each row now reads what you want, then how: keys as keycaps, markdown as code, menu items as plain text. It uses two columns when there's room. New items are tagged where they live instead of repeated in a group at the top. The first row shows your own summon shortcut, not the default.
+- **Quieter, more consistent chrome.** Footer and heading-bar buttons brighten on hover. The update states use proper symbols. The word count hides on an empty note, and "Filed to Inbox" confirms an archive. The welcome, shortcut and update prompts share one card style, and Return dismisses the welcome.
+- **A tidier menu.** The right-click menu is grouped by what things do, and shows your summon shortcut the way macOS shows shortcuts. On macOS 26 it has icons like the system's menus.
+- **Accessibility.** VoiceOver names the note and every icon button. Increase Contrast strengthens the border and footer. Reduce Transparency makes the panel solid, whatever the Transparency menu says.
+- **The pulsing "something new" dot costs nothing.** It used to redraw every frame, about 5% of a CPU core for as long as it was on screen; it's now a Core Animation layer the system animates on its own.
+- **Half the download.** Release builds strip local debug symbols.
 - The release script refuses release notes the in-app update card can't render safely, removes the built app bundle after uploading so it can't be mistaken for the installed one, and measures the panel's size after launch. Three guards for the three things that went wrong in 0.1.42.
 
 ## 0.1.43 — 2026-09-01

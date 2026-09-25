@@ -20,13 +20,7 @@ struct UpdateAvailableOverlay: View {
         ZStack {
             // Translucent backdrop — editor stays faintly visible so the
             // overlay reads as a notification, not a full-screen modal.
-            Rectangle()
-                .fill(theme == .dark
-                      ? Color(white: 0.05).opacity(0.55)
-                      : Color(white: 1.0).opacity(0.55))
-                .contentShape(Rectangle())
-                .onTapGesture { onLater() }
-                .arrowCursor()
+            OverlayScrim(theme: theme, onTap: onLater)
 
             VStack(spacing: 16) {
                 // Non-interactive content gets its own arrow-cursor
@@ -90,18 +84,7 @@ struct UpdateAvailableOverlay: View {
                     .pointerCursor()
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 22)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(cardFill)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(borderColor, lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.18), radius: 18, y: 6)
-            )
-            .frame(maxWidth: 360)
+            .overlayCard(theme: theme)
         }
         .onAppear { startListening() }
         .onDisappear { stopListening() }
@@ -140,18 +123,6 @@ struct UpdateAvailableOverlay: View {
     private var isDownloading: Bool {
         if case .downloading = state { return true }
         return false
-    }
-
-    private var cardFill: Color {
-        theme == .dark
-            ? Color(white: 0.13)
-            : Color(white: 0.99)
-    }
-
-    private var borderColor: Color {
-        theme == .dark
-            ? Color(white: 1.0).opacity(0.10)
-            : Color.black.opacity(0.10)
     }
 
     /// Esc — treat as "Later". The panel.onCancel cascade in

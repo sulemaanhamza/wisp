@@ -4,8 +4,9 @@ import AppKit
 /// menu. All are preinstalled on macOS, all read well at 17–24pt body
 /// sizes. Charter is the default — Matthew Carter's screen-optimised
 /// serif. The rest cover different feels: warm humanist (Iowan Old
-/// Style), classic refined (Hoefler Text, Palatino), and humanist sans
-/// (Optima, Avenir Next) for those who don't want a serif at all.
+/// Style), classic refined (Hoefler Text, Palatino), humanist sans
+/// (Optima, Avenir Next), and plain sans (San Francisco, Verdana) for
+/// those who want their notes to look like the rest of the Mac (#11).
 enum FontFace: String, CaseIterable {
     case charter
     case iowanOldStyle
@@ -13,6 +14,8 @@ enum FontFace: String, CaseIterable {
     case palatino
     case optima
     case avenirNext
+    case sanFrancisco
+    case verdana
 
     var displayName: String {
         switch self {
@@ -22,7 +25,16 @@ enum FontFace: String, CaseIterable {
         case .palatino:       return "Palatino"
         case .optima:         return "Optima"
         case .avenirNext:     return "Avenir Next"
+        case .sanFrancisco:   return "San Francisco"
+        case .verdana:        return "Verdana"
         }
+    }
+
+    /// The face at `size`, or nil when it isn't installed. San Francisco
+    /// is the system font and has no public family name to look up.
+    func font(size: CGFloat) -> NSFont? {
+        if self == .sanFrancisco { return NSFont.systemFont(ofSize: size) }
+        return NSFont(name: familyName, size: size)
     }
 
     /// Family name passed to NSFont(name:size:). NSFont accepts family

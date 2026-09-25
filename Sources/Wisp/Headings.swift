@@ -20,6 +20,12 @@ extension String {
         var lineStart = 0
         while lineStart < total {
             let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
+            // Nearly every line isn't a heading; skip those before
+            // paying for a substring and a regex.
+            guard ns.character(at: lineRange.location) == 0x23 else {  // #
+                lineStart = NSMaxRange(lineRange)
+                continue
+            }
             let raw = ns.substring(with: lineRange)
             let line = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
             if let match = line.firstMatch(of: /^(#{1,6})\s+(.+)/) {

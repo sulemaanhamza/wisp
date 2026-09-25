@@ -49,6 +49,10 @@ struct Palette {
     /// Used for the horizontal-rule glyph run so it reads as a quieter
     /// hint than body text instead of competing with words.
     let divider: NSColor
+    /// Markdown's own marks — `#`, `**`, backticks, fence lines — and
+    /// link underlines. Kept on screen, since the file is plain text,
+    /// but quiet enough that the words read first.
+    let syntax: NSColor
     /// Background drawn behind the current Find match (temporary layout
     /// attribute). Warm amber so it reads in both themes.
     let findHighlight: NSColor
@@ -79,18 +83,21 @@ struct Palette {
             return Palette(
                 text: text,
                 cursor: NSColor(red: 0.98, green: 0.97, blue: 0.93, alpha: 1.0),
-                selection: NSColor(white: 1.0, alpha: 0.18),
+                selection: NSColor.controlAccentColor.withAlphaComponent(0.32),
                 divider: text.withAlphaComponent(0.35),
+                syntax: text.withAlphaComponent(0.38),
                 findHighlight: NSColor(red: 0.98, green: 0.78, blue: 0.28, alpha: 0.42)
             )
         case .light:
-            // Clean white slate with near-black ink and a soft accent selection.
+            // Clean white slate with near-black ink. Selection follows the
+            // system accent colour in both themes.
             let text = NSColor(white: 0.10, alpha: 1.0)
             return Palette(
                 text: text,
                 cursor: NSColor(white: 0.0, alpha: 1.0),
-                selection: NSColor(red: 0.0, green: 0.40, blue: 1.0, alpha: 0.18),
+                selection: NSColor.controlAccentColor.withAlphaComponent(0.22),
                 divider: text.withAlphaComponent(0.30),
+                syntax: text.withAlphaComponent(0.36),
                 findHighlight: NSColor(red: 1.0, green: 0.82, blue: 0.18, alpha: 0.55)
             )
         }

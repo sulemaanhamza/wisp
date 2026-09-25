@@ -1,49 +1,62 @@
 import SwiftUI
+import AppKit
+import Carbon.HIToolbox
 
-/// First-run welcome overlay. Shows three essential tips and a single
-/// "Got it" affordance. Dismisses on click anywhere or Esc.
+/// First-run welcome card. Three essential tips and a single "Got it"
+/// (Return works too). Dismisses on a click outside the card or Esc.
 struct TourOverlay: View {
     let theme: Theme
     let onDismiss: () -> Void
 
+    @State private var monitor: Any?
+
     var body: some View {
         ZStack {
-            Rectangle()
-                .fill(theme == .dark
-                      ? Color(white: 0.08).opacity(0.96)
-                      : Color.white.opacity(0.98))
-                .contentShape(Rectangle())
-                .onTapGesture { onDismiss() }
+            OverlayScrim(theme: theme, onTap: onDismiss)
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 Text("Welcome to Wisp")
-                    .font(.system(size: 20, weight: .medium))
-                    .padding(.bottom, 4)
+                    .font(.system(size: 17, weight: .semibold))
 
-                tip("⌥Space", "summon Wisp from anywhere on macOS")
-                tip("Right-click the menu bar icon", "for font, shortcut, and about")
-                tip("Click the ? in the footer", "for shortcuts and formatting")
+                tip("⌥Space", "summon Wisp from anywhere")
+                tip("Menu bar icon", "right-click for fonts, transparency, and your shortcut")
+                tip("?", "in the footer, for every shortcut and format")
 
                 HStack {
                     Spacer()
                     Button(action: onDismiss) {
                         Text("Got it")
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(.tertiary, lineWidth: 1)
-                            )
+                            .frame(minWidth: 72)
                     }
-                    .buttonStyle(.plain)
                     .pointerCursor()
                 }
-                .padding(.top, 12)
+                .padding(.top, 8)
             }
-            .padding(.horizontal, 44)
-            .padding(.vertical, 36)
-            .frame(maxWidth: 460, alignment: .leading)
+            .overlayCard(theme: theme, maxWidth: 400)
+        }
+        .onAppear { startListening() }
+        .onDisappear { stopListening() }
+    }
+
+    /// Return means "Got it". A keyboard shortcut on the button can't do
+    /// this: the note keeps keyboard focus under the card, so it would
+    /// take the Return first — as a newline in the text behind.
+    private func startListening() {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            switch Int(event.keyCode) {
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                onDismiss()
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func stopListening() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
     }
 
@@ -53,10 +66,11 @@ struct TourOverlay: View {
             Text(key)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: 160, alignment: .leading)
+                .frame(width: 112, alignment: .leading)
             Text(description)
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

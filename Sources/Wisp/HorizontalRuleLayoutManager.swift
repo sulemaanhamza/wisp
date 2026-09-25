@@ -64,7 +64,9 @@ final class HorizontalRuleLayoutManager: NSLayoutManager {
         let charEnd = charRange.location + charRange.length
         while lineStart < charEnd {
             let lineRange = nsString.lineRange(for: NSRange(location: lineStart, length: 0))
-            if Self.isHorizontalRuleLine(lineRange: lineRange, in: nsString) {
+            // Inside a fenced block `---` is code, not a rule.
+            if Self.isHorizontalRuleLine(lineRange: lineRange, in: nsString),
+               textStorage.attribute(.wispCodeBlock, at: lineRange.location, effectiveRange: nil) == nil {
                 let glyphRange = self.glyphRange(
                     forCharacterRange: lineRange,
                     actualCharacterRange: nil

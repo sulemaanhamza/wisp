@@ -18,5 +18,6 @@ struct FirstRunDot: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .help("Quick tour")
+        .accessibilityLabel("Quick tour")
     }
 }

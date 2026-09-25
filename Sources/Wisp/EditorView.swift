@@ -4,12 +4,14 @@ enum FontSize: String, CaseIterable {
     case small
     case medium
     case large
+    case extraLarge
 
     var pointSize: CGFloat {
         switch self {
         case .small: return 17
         case .medium: return 20
         case .large: return 24
+        case .extraLarge: return 28
         }
     }
 
@@ -18,18 +20,49 @@ enum FontSize: String, CaseIterable {
         let idx = all.firstIndex(of: self) ?? 0
         return all[(idx + 1) % all.count]
     }
+
+    /// One step up or down for ⌘= / ⌘-, stopping at the ends rather
+    /// than wrapping the way the footer button's cycle does.
+    var larger: FontSize {
+        let all = FontSize.allCases
+        let idx = all.firstIndex(of: self) ?? 0
+        return all[min(idx + 1, all.count - 1)]
+    }
+
+    var smaller: FontSize {
+        let all = FontSize.allCases
+        let idx = all.firstIndex(of: self) ?? 0
+        return all[max(idx - 1, 0)]
+    }
 }
 
 @MainActor
 final class EditorModel: ObservableObject {
     @Published var text: String = "" {
         didSet {
-            headings = text.extractHeadings()
+            // Published only when the outline changes: every assignment
+            // re-renders the header bar, and typing above a heading moves
+            // its offset without changing what the bar shows.
+            let parsed = text.extractHeadings()
+            headingOffsets = parsed.map(\.lineStart)
+            if !parsed.map({ [$0.name, String($0.level)] }).elementsEqual(headings.map({ [$0.name, String($0.level)] })) {
+                headings = parsed
+            }
+            scheduleWordCount()
             guard didLoad, !isReloading else { return }
             scheduleSave()
         }
     }
-    @Published var headings: [Heading] = []
+    @Published private(set) var headings: [Heading] = []
+    /// Where each of `headings` starts right now; kept current on every
+    /// keystroke without republishing.
+    private var headingOffsets: [Int] = []
+    /// Trails typing slightly. It's a quiet footer figure, and counting
+    /// words walks the whole note.
+    @Published private(set) var wordCount: Int = 0
+    /// A few words of confirmation in the footer — "Filed to Inbox" —
+    /// that clear themselves.
+    @Published private(set) var notice: String?
     @Published var focusToken: Int = 0
     @Published var scrollToken: Int = 0
     private(set) var scrollTarget: Int = 0
@@ -38,8 +71,8 @@ final class EditorModel: ObservableObject {
     @Published var showHotKeyCapture: Bool = false
     @Published var showFirstRunHint: Bool = false
     /// Tips this user hasn't been shown, fixed for the session so the
-    /// "New" group doesn't vanish out from under them the moment the
-    /// dot is marked seen.
+    /// "New" tags don't vanish out from under them the moment the dot
+    /// is marked seen.
     @Published private(set) var newTips: [Tip] = []
     /// Drives the dot on the `?`. Cleared as soon as they look.
     @Published private(set) var hasUnseenTips: Bool = false
@@ -111,6 +144,41 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(fontFace.rawValue, forKey: "FontFace")
         }
     }
+    /// Close the panel when the user clicks anywhere outside it. Off by
+    /// default so nobody's habits change on update. Persisted.
+    @Published var dismissOnOutsideClick: Bool = false {
+        didSet {
+            guard didLoad else { return }
+            UserDefaults.standard.set(dismissOnOutsideClick, forKey: OutsideClickMonitor.enabledKey)
+            onDismissPreferenceChange?()
+        }
+    }
+    /// PanelController subscribes so it can start or stop the global
+    /// monitor when the preference flips while the panel is open.
+    var onDismissPreferenceChange: (@MainActor () -> Void)?
+
+    /// Open the panel on whichever screen the pointer is on, rather
+    /// than where it was left. Off by default. Persisted.
+    @Published var opensOnPointerScreen: Bool = false {
+        didSet {
+            guard didLoad else { return }
+            UserDefaults.standard.set(opensOnPointerScreen, forKey: "OpensOnPointerScreen")
+        }
+    }
+
+    /// System Settings → Accessibility → Display → Reduce transparency.
+    /// Overrides the Transparency menu while it's on.
+    @Published private(set) var reduceTransparency =
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+        didSet { onChromeChange?() }
+    }
+
+    /// What's actually drawn: the user's choice, unless the system has
+    /// asked for no transparency at all.
+    var effectiveTransparency: Transparency {
+        reduceTransparency ? .off : transparency
+    }
+
     /// How much of the desktop shows through. Persisted.
     @Published var transparency: Transparency = .subtle {
         didSet {
@@ -147,9 +215,12 @@ final class EditorModel: ObservableObject {
     /// between Light and Dark while the user is on .system. Held strong
     /// so the observation stays alive for the model's lifetime.
     private var appearanceObservation: NSKeyValueObservation?
+    private var accessibilityObserver: NSObjectProtocol?
 
     private var didLoad = false
     private var saveTask: Task<Void, Never>?
+    private var wordCountTask: Task<Void, Never>?
+    private var noticeTask: Task<Void, Never>?
     /// Set true while we're rewriting `text` from a disk reload — the
     /// `text.didSet` save trigger checks this so we don't immediately
     /// re-save the content we just loaded.
@@ -189,6 +260,16 @@ final class EditorModel: ObservableObject {
            let level = Transparency(rawValue: saved) {
             transparency = level
         }
+        dismissOnOutsideClick = UserDefaults.standard.bool(forKey: OutsideClickMonitor.enabledKey)
+        opensOnPointerScreen = UserDefaults.standard.bool(forKey: "OpensOnPointerScreen")
+        accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            }
+        }
         if let saved = HotKey.loadFromDefaults() {
             hotKey = saved
         }
@@ -218,6 +299,8 @@ final class EditorModel: ObservableObject {
             StorageLocation.startDownloadIfPlaceholder()
         }
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
+        wordCountTask?.cancel()
+        wordCount = Self.countWords(text)
         didLoad = true
         // Preserve the loaded content as a session-start snapshot
         // (deduped) so each launch is a recoverable point.
@@ -327,6 +410,10 @@ final class EditorModel: ObservableObject {
         requestFocus()
     }
 
+    func makeTextLarger() { fontSize = fontSize.larger }
+    func makeTextSmaller() { fontSize = fontSize.smaller }
+    func resetTextSize() { fontSize = .medium }
+
     func cycleTheme() {
         themePreference = themePreference.next
         requestFocus()
@@ -350,7 +437,35 @@ final class EditorModel: ObservableObject {
         text = ""
         saveNow()
         requestFocus()
+        showNotice("Filed to Inbox")
         return true
+    }
+
+    func showNotice(_ message: String) {
+        noticeTask?.cancel()
+        notice = message
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
+    nonisolated static func countWords(_ text: String) -> Int {
+        var count = 0
+        text.enumerateSubstrings(in: text.startIndex..., options: [.byWords, .substringNotRequired]) { _, _, _, _ in
+            count += 1
+        }
+        return count
+    }
+
+    private func scheduleWordCount() {
+        wordCountTask?.cancel()
+        wordCountTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.wordCount = Self.countWords(self.text)
+        }
     }
 
     private func systemAppearanceMaybeChanged() {
@@ -360,7 +475,8 @@ final class EditorModel: ObservableObject {
     }
 
     func jumpTo(_ heading: Heading) {
-        scrollTarget = heading.lineStart
+        guard let index = headings.firstIndex(of: heading), index < headingOffsets.count else { return }
+        scrollTarget = headingOffsets[index]
         scrollToken &+= 1
     }
 
@@ -499,6 +615,10 @@ struct EditorView: View {
     @ObservedObject var model: EditorModel
     @ObservedObject var updater: Updater
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
@@ -516,22 +636,30 @@ struct EditorView: View {
                         fontSize: model.fontSize,
                         fontFace: model.fontFace,
                         theme: model.theme,
-                        transparency: model.transparency
+                        transparency: model.effectiveTransparency
                     )
-                    .padding(.horizontal, 28)
-                    .padding(.top, model.headings.isEmpty ? 28 : 4)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 24)
+                    .padding(.top, model.headings.isEmpty ? 24 : 4)
+                    .padding(.bottom, 8)
                     if model.text.isEmpty {
+                        // Laid out to land exactly where the caret is: in
+                        // the same centred column as the text, and pushed
+                        // down by the extra leading the text view puts
+                        // above its first line.
                         Text(model.placeholder)
-                            .font(.custom(model.fontFace.familyName, size: model.fontSize.pointSize))
+                            .font(Font(editorFont as CTFont))
                             .foregroundStyle(.tertiary)
                             .allowsHitTesting(false)
-                            .padding(.horizontal, 28)
-                            .padding(.top, model.headings.isEmpty ? 28 : 4)
+                            .padding(.top, firstLineLead)
+                            .frame(maxWidth: model.fontSize.pointSize * 34, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .top)
+                            .padding(.horizontal, 24)
+                            .padding(.top, model.headings.isEmpty ? 24 : 4)
                     }
                 }
                 BottomBar(
-                    wordCount: wordCount,
+                    wordCount: model.wordCount,
+                    notice: model.notice,
                     saveFailed: model.saveFailed,
                     fontSize: model.fontSize,
                     onCycleFontSize: { model.cycleFontSize() },
@@ -541,7 +669,7 @@ struct EditorView: View {
                     onUpdateClick: { updater.handleClick() },
                     hasUnseenTips: model.hasUnseenTips,
                     onHelpClick: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
+                        withAnimation(overlayAnimation) {
                             if model.showHelp {
                                 model.closeHelp()
                             } else {
@@ -553,7 +681,7 @@ struct EditorView: View {
             }
             if model.showFirstRunHint && !model.showTour {
                 FirstRunDot {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(overlayAnimation) {
                         model.openTour()
                     }
                 }
@@ -564,36 +692,36 @@ struct EditorView: View {
             }
             if model.showTour {
                 TourOverlay(theme: model.theme) {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(overlayAnimation) {
                         model.dismissTour()
                     }
                 }
-                .transition(.opacity)
+                .transition(overlayTransition)
             }
             if model.showHelp {
-                HelpOverlay(theme: model.theme, newTips: model.newTips) {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                HelpOverlay(theme: model.theme, hotKey: model.hotKey.displayString, newTips: model.newTips) {
+                    withAnimation(overlayAnimation) {
                         model.closeHelp()
                     }
                 }
-                .transition(.opacity)
+                .transition(overlayTransition)
             }
             if model.showHotKeyCapture {
                 HotKeyCaptureOverlay(
                     theme: model.theme,
                     onTryRegister: { hk in model.tryUpdateHotKey(hk) },
                     onSuccess: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
+                        withAnimation(overlayAnimation) {
                             model.showHotKeyCapture = false
                         }
                     },
                     onCancel: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
+                        withAnimation(overlayAnimation) {
                             model.showHotKeyCapture = false
                         }
                     }
                 )
-                .transition(.opacity)
+                .transition(overlayTransition)
             }
             if shouldShowUpdateOverlay {
                 UpdateAvailableOverlay(
@@ -603,12 +731,12 @@ struct EditorView: View {
                     onUpdate: { updater.startUpdateAndRestart() },
                     onLater: {
                         updater.cancelAutoApply()
-                        withAnimation(.easeInOut(duration: 0.18)) {
+                        withAnimation(overlayAnimation) {
                             model.updateDismissed = true
                         }
                     }
                 )
-                .transition(.opacity)
+                .transition(overlayTransition)
             }
             if model.showFind {
                 FindBar(
@@ -631,10 +759,34 @@ struct EditorView: View {
             }
         }
         .overlay {
+            // A true hairline — one device pixel — rather than a 1pt
+            // stroke that draws two on Retina.
             RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(borderColor, lineWidth: 1)
+                .strokeBorder(borderColor, lineWidth: 1 / max(displayScale, 1))
                 .allowsHitTesting(false)
         }
+    }
+
+    private var editorFont: NSFont {
+        MinimalTextEditor.makeFont(face: model.fontFace, size: model.fontSize.pointSize)
+    }
+
+    /// The text view sets its lines at `lineHeightMultiple`, and the
+    /// extra height goes above each line's glyphs — the first line
+    /// included.
+    private var firstLineLead: CGFloat {
+        let natural = NSLayoutManager().defaultLineHeight(for: editorFont)
+        return (natural * (MarkdownStyler.lineHeightMultiple - 1)).rounded()
+    }
+
+    private var overlayAnimation: Animation {
+        .spring(response: 0.3, dampingFraction: 0.9)
+    }
+
+    /// Overlays settle in with a slight scale, or simply fade when the
+    /// system asks for reduced motion.
+    private var overlayTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98))
     }
 
     /// Show the update overlay whenever there's something installable
@@ -650,19 +802,13 @@ struct EditorView: View {
         }
     }
 
+    /// The dark panel needs an edge too: without one it dissolves into
+    /// a dark desktop.
     private var borderColor: Color {
+        let boost = contrast == .increased ? 2.0 : 1.0
         switch model.theme {
-        case .light: return Color.black.opacity(0.12)
-        case .dark: return Color.clear
+        case .light: return Color.black.opacity(0.12 * boost)
+        case .dark: return Color.white.opacity(0.12 * boost)
         }
-    }
-
-    private var wordCount: Int {
-        var count = 0
-        let text = model.text
-        text.enumerateSubstrings(in: text.startIndex..., options: .byWords) { _, _, _, _ in
-            count += 1
-        }
-        return count
     }
 }

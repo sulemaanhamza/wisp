@@ -45,6 +45,29 @@ struct HotKey: Equatable, Sendable {
         return "\(hotKey.displayString) is a system shortcut. Add ⌥ or ⌃ to it."
     }
 
+    /// The shortcut as an NSMenuItem key equivalent, or nil for keys a
+    /// menu can't show that way (function keys, arrows).
+    var menuKeyEquivalent: (String, NSEvent.ModifierFlags)? {
+        let name = Self.keyName(for: keyCode)
+        let key: String
+        if keyCode == UInt32(kVK_Space) {
+            key = " "
+        } else if keyCode == UInt32(kVK_ANSI_Minus) {
+            key = "-"  // keyName spells it with a typographic minus
+        } else if name.count == 1, let scalar = name.unicodeScalars.first,
+                  scalar.isASCII, !CharacterSet.controlCharacters.contains(scalar) {
+            key = name.lowercased()
+        } else {
+            return nil
+        }
+        var flags: NSEvent.ModifierFlags = []
+        if (modifiers & UInt32(controlKey)) != 0 { flags.insert(.control) }
+        if (modifiers & UInt32(optionKey))  != 0 { flags.insert(.option) }
+        if (modifiers & UInt32(shiftKey))   != 0 { flags.insert(.shift) }
+        if (modifiers & UInt32(cmdKey))     != 0 { flags.insert(.command) }
+        return (key, flags)
+    }
+
     static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
         var c: UInt32 = 0
         if flags.contains(.command) { c |= UInt32(cmdKey) }

@@ -17,6 +17,10 @@ final class MenuBarController: NSObject {
         var onShowAbout: () -> Void
         var currentLaunchAtLogin: () -> Bool
         var onToggleLaunchAtLogin: () -> Void
+        var currentDismissOnOutsideClick: () -> Bool
+        var onToggleDismissOnOutsideClick: () -> Void
+        var currentOpensOnPointerScreen: () -> Bool
+        var onToggleOpensOnPointerScreen: () -> Void
         var isStorageCustom: () -> Bool
         var onPickStorageLocation: () -> Void
         var onResetStorageLocation: () -> Void
@@ -60,6 +64,8 @@ final class MenuBarController: NSObject {
     @objc private func handleSetHotKey() { actions.onSetHotKey() }
     @objc private func handleShowAbout() { actions.onShowAbout() }
     @objc private func handleToggleLaunchAtLogin() { actions.onToggleLaunchAtLogin() }
+    @objc private func handleToggleDismissOnOutsideClick() { actions.onToggleDismissOnOutsideClick() }
+    @objc private func handleToggleOpensOnPointerScreen() { actions.onToggleOpensOnPointerScreen() }
     @objc private func handlePickStorageLocation() { actions.onPickStorageLocation() }
     @objc private func handleResetStorageLocation() { actions.onResetStorageLocation() }
     @objc private func handleRevealScratchpad() { actions.onRevealScratchpad() }
@@ -81,46 +87,69 @@ final class MenuBarController: NSObject {
     }
 
     /// Built fresh on every right-click, so checkmarks and the shortcut
-    /// label are always current without any menu-delegate bookkeeping.
+    /// are always current without any menu-delegate bookkeeping.
+    /// Grouped: actions, appearance, behaviour, setup, about.
     private func showContextMenu() {
         let menu = NSMenu()
 
-        menu.addItem(item("Open Wisp", #selector(openFromMenu)))
+        // The global shortcut shows where macOS shows shortcuts. Keys a
+        // menu can't draw that way (F-keys, arrows, Return) are spelled
+        // out in the title instead, so it's never missing.
+        let hotKey = actions.currentHotKey()
+        let equivalent = hotKey.menuKeyEquivalent
+        let open = item(
+            equivalent == nil ? "Open Wisp  (\(hotKey.displayString))" : "Open Wisp",
+            #selector(openFromMenu), symbol: "macwindow"
+        )
+        if let (key, modifiers) = equivalent {
+            open.keyEquivalent = key
+            open.keyEquivalentModifierMask = modifiers
+        }
+        menu.addItem(open)
 
-        let archive = item("Archive to Inbox", #selector(handleArchive), key: "\r")
+        let archive = item("Archive to Inbox", #selector(handleArchive), key: "\r", symbol: "tray.and.arrow.down")
         archive.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(archive)
 
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(submenu("Font", options: FontFace.allCases,
+        menu.addItem(submenu("Font", symbol: "textformat", options: FontFace.allCases,
                              title: { $0.displayName },
                              value: { $0.rawValue },
                              isOn: { $0 == self.actions.currentFontFace() },
                              action: #selector(selectFontFace(_:))))
 
-        menu.addItem(submenu("Transparency", options: Transparency.allCases,
+        menu.addItem(submenu("Transparency", symbol: "square.on.square", options: Transparency.allCases,
                              title: { $0.displayName },
                              value: { $0.rawValue },
                              isOn: { $0 == self.actions.currentTransparency() },
                              action: #selector(selectTransparency(_:))))
 
-        menu.addItem(item(
-            "Set Shortcut…  (\(actions.currentHotKey().displayString))",
-            #selector(handleSetHotKey)
-        ))
+        menu.addItem(NSMenuItem.separator())
 
         let launch = item("Launch at Login", #selector(handleToggleLaunchAtLogin))
         launch.state = actions.currentLaunchAtLogin() ? .on : .off
         menu.addItem(launch)
 
-        menu.addItem(item("Storage Location…", #selector(handlePickStorageLocation)))
+        let outside = item("Close When Clicking Outside", #selector(handleToggleDismissOnOutsideClick))
+        outside.state = actions.currentDismissOnOutsideClick() ? .on : .off
+        menu.addItem(outside)
+
+        let pointer = item("Open on Pointer's Screen", #selector(handleToggleOpensOnPointerScreen))
+        pointer.state = actions.currentOpensOnPointerScreen() ? .on : .off
+        menu.addItem(pointer)
+
+        menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(item("Set Shortcut…", #selector(handleSetHotKey), symbol: "command"))
+        menu.addItem(item("Storage Location…", #selector(handlePickStorageLocation), symbol: "folder"))
         if actions.isStorageCustom() {
             menu.addItem(item("Reset Storage Location", #selector(handleResetStorageLocation)))
         }
 
         // One submenu instead of three top-level "Reveal …" items.
         let revealItem = NSMenuItem(title: "Reveal in Finder", action: nil, keyEquivalent: "")
+        setSymbol("magnifyingglass", on: revealItem)
         let reveal = NSMenu(title: "Reveal in Finder")
         reveal.addItem(item("Scratchpad", #selector(handleRevealScratchpad)))
         reveal.addItem(item("Inbox", #selector(handleRevealInbox)))
@@ -128,28 +157,40 @@ final class MenuBarController: NSObject {
         revealItem.submenu = reveal
         menu.addItem(revealItem)
 
-        menu.addItem(item("About Wisp", #selector(handleShowAbout)))
-
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(
+        menu.addItem(item("About Wisp", #selector(handleShowAbout), symbol: "info.circle"))
+        let quit = NSMenuItem(
             title: "Quit Wisp",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
-        ))
+        )
+        setSymbol("power", on: quit)
+        menu.addItem(quit)
 
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
     }
 
-    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+    /// macOS 26 menus carry an icon beside each top-level command;
+    /// earlier releases don't, and an icon there looks out of place.
+    private func setSymbol(_ name: String?, on item: NSMenuItem) {
+        guard let name, #available(macOS 26, *) else { return }
+        item.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    private func item(
+        _ title: String, _ action: Selector, key: String = "", symbol: String? = nil
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
+        setSymbol(symbol, on: item)
         return item
     }
 
     private func submenu<T>(
         _ title: String,
+        symbol: String? = nil,
         options: [T],
         title titleFor: (T) -> String,
         value: (T) -> String,
@@ -157,6 +198,7 @@ final class MenuBarController: NSObject {
         action: Selector
     ) -> NSMenuItem {
         let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        setSymbol(symbol, on: parent)
         let menu = NSMenu(title: title)
         for option in options {
             let child = item(titleFor(option), action)

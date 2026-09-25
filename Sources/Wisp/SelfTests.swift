@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Carbon.HIToolbox
 
 /// In-process smoke tests for the pure-logic parts of Wisp.
@@ -179,7 +180,14 @@ enum SelfTests {
         check("FontSize.large  → 24pt", FontSize.large.pointSize == 24)
         check("FontSize cycles small→medium",  FontSize.small.next == .medium)
         check("FontSize cycles medium→large",  FontSize.medium.next == .large)
-        check("FontSize cycles large→small",   FontSize.large.next == .small)
+        check("FontSize cycles large→extraLarge", FontSize.large.next == .extraLarge)
+        check("FontSize cycles extraLarge→small", FontSize.extraLarge.next == .small)
+        check("FontSize larger stops at the top", FontSize.extraLarge.larger == .extraLarge)
+        check("FontSize smaller stops at the bottom", FontSize.small.smaller == .small)
+        check("FontSize larger steps", FontSize.medium.larger == .large)
+        check("FontSize smaller steps", FontSize.medium.smaller == .small)
+        check("word count: empty is zero", EditorModel.countWords("") == 0)
+        check("word count: counts words, not symbols", EditorModel.countWords("# Hi there — **you**") == 3)
         check("FontSize.small.rawValue", FontSize.small.rawValue == "small")
         check("FontSize.medium.rawValue", FontSize.medium.rawValue == "medium")
         check("FontSize.large.rawValue", FontSize.large.rawValue == "large")
@@ -190,7 +198,9 @@ enum SelfTests {
             check("FontFace \(face.displayName) familyName == displayName",
                   face.familyName == face.displayName)
         }
-        check("FontFace count = 6", FontFace.allCases.count == 6)
+        check("FontFace count = 8", FontFace.allCases.count == 8)
+        check("FontFace: every face resolves to a real font",
+              FontFace.allCases.allSatisfy { $0.font(size: 20) != nil })
         check("FontFace.charter.rawValue", FontFace.charter.rawValue == "charter")
         check("FontFace.iowanOldStyle.rawValue",
               FontFace.iowanOldStyle.rawValue == "iowanOldStyle")
@@ -690,6 +700,231 @@ enum SelfTests {
         check("restyle: plain prose gets no code marks",
               runs(.wispCodeBlock, in: plain) == 0 && runs(.backgroundColor, in: plain) == 0)
 
+        // MARK: - Paragraph restyle matches a full restyle
+
+        // The editor restyles only the paragraphs an edit touched. Every
+        // edit below has to leave the storage exactly as a from-scratch
+        // full restyle would — including the ones that open or close a
+        // fence, which change lines far from the edit.
+        let seed = """
+        # Title
+        Some **bold** and *italic* and `code` at https://example.com here.
+
+        - [ ] open task
+        - [x] done task
+        ---
+        ```
+        inside **not bold**
+        ```
+        ## Tail
+        last line
+        """
+        // Applied one after another, each against the text the last one
+        // left, so "close it again" really closes what the step before
+        // opened. Each range is found in the current text by content.
+        typealias Step = (name: String, edit: (NSString) -> (NSRange, String))
+        let steps: [Step] = [
+            ("type in prose", { ns in (NSRange(location: ns.range(of: "Some").location + 2, length: 0), "x") }),
+            ("make a heading", { ns in (NSRange(location: ns.range(of: "Soxme").location, length: 0), "## ") }),
+            ("open a fence mid-note", { ns in (NSRange(location: ns.range(of: "- [ ] open").location, length: 0), "```\n") }),
+            ("close it again", { ns in (ns.range(of: "```\n- [ ] open"), "- [ ] open") }),
+            ("break the closing fence", { ns in (NSRange(location: ns.range(of: "```\n## Tail").location, length: 1), "") }),
+            ("mend it", { ns in (NSRange(location: ns.range(of: "``\n## Tail").location, length: 0), "`") }),
+            ("tick a box", { ns in (NSRange(location: ns.range(of: "[ ]").location + 1, length: 1), "x") }),
+            ("paste across lines", { ns in (NSRange(location: 20, length: 30), "new\n**words**\n") }),
+            ("delete to the tail", { ns in (NSRange(location: 8, length: ns.range(of: "## Tail").location - 8), "") }),
+        ]
+        let running = NSTextStorage(string: seed)
+        MarkdownStyler.restyle(running, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        for step in steps {
+            let (range, replacement) = step.edit(running.string as NSString)
+            guard range.location != NSNotFound else {
+                check("paragraph restyle == full restyle: \(step.name) (step found its text)", false)
+                continue
+            }
+            running.replaceCharacters(in: range, with: replacement)
+            MarkdownStyler.restyle(
+                running, face: .charter, size: .medium, theme: .dark, transparency: .subtle,
+                edited: NSRange(location: range.location, length: (replacement as NSString).length)
+            )
+            let full = NSTextStorage(string: running.string)
+            MarkdownStyler.restyle(full, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+            check("paragraph restyle == full restyle: \(step.name)", running.isEqual(to: full))
+        }
+
+        // Same property under random edits, seeded so a failure repeats.
+        var rng: UInt64 = 0x5EED
+        func roll(_ n: Int) -> Int {
+            rng = rng &* 6364136223846793005 &+ 1442695040888963407
+            return Int((rng >> 33) % UInt64(max(n, 1)))
+        }
+        let fragments = [
+            "```\n", "\n", "# ", "**", "*", "`", "- [ ] ", "- [x] ", "---\n", "word ", "https://a.io ", "  ```\n",
+            // Every other line break NSString knows: pasted text keeps
+            // them, and a paragraph restyle must agree with a full one.
+            "\r", "\r\n", "\u{2028}", "\u{2029}",
+        ]
+        let fuzz = NSTextStorage(string: seed)
+        MarkdownStyler.restyle(fuzz, face: .charter, size: .medium, theme: .light, transparency: .strong)
+        var fuzzFailures = 0
+        for _ in 0..<300 {
+            let length = fuzz.length
+            let location = roll(length + 1)
+            let removing = roll(3) == 0 ? min(roll(12), length - location) : 0
+            let insert = roll(4) == 0 ? "" : fragments[roll(fragments.count)]
+            fuzz.replaceCharacters(in: NSRange(location: location, length: removing), with: insert)
+            MarkdownStyler.restyle(
+                fuzz, face: .charter, size: .medium, theme: .light, transparency: .strong,
+                edited: NSRange(location: location, length: (insert as NSString).length)
+            )
+            let full = NSTextStorage(string: fuzz.string)
+            MarkdownStyler.restyle(full, face: .charter, size: .medium, theme: .light, transparency: .strong)
+            if !fuzz.isEqual(to: full) { fuzzFailures += 1 }
+        }
+        check("paragraph restyle == full restyle: 300 random edits (\(fuzzFailures) differ)", fuzzFailures == 0)
+
+        // MARK: - Line editing
+
+        func applied(_ text: String, _ edit: LineEditing.Edit?) -> String? {
+            guard let edit else { return nil }
+            return (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+        }
+        check("move up: swaps with the line above",
+              applied("a\nb\nc", LineEditing.moveLines(in: "a\nb\nc", selection: NSRange(location: 2, length: 0), up: true)) == "b\na\nc")
+        check("move up: the last line carries its missing newline correctly",
+              applied("a\nb", LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 3, length: 0), up: true)) == "b\na")
+        check("move down: into the last line",
+              applied("a\nb", LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 0, length: 0), up: false)) == "b\na")
+        check("move up: nothing above the first line",
+              LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 0, length: 0), up: true) == nil)
+        check("move down: nothing below the last line",
+              LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 3, length: 0), up: false) == nil)
+        check("move down: a two-line selection moves together",
+              applied("a\nb\nc\n", LineEditing.moveLines(in: "a\nb\nc\n", selection: NSRange(location: 0, length: 3), up: false)) == "c\na\nb\n")
+        let caret = LineEditing.moveLines(in: "one\ntwo\n", selection: NSRange(location: 6, length: 0), up: true)
+        check("move up: caret stays on the same character", caret?.selection.location == 2)
+        check("task: plain line gains a box", LineEditing.toggleTask(line: "milk") == "- [ ] milk")
+        check("task: bullet keeps its marker", LineEditing.toggleTask(line: "  * milk") == "  * [ ] milk")
+        check("task: open box ticks", LineEditing.toggleTask(line: "- [ ] milk") == "- [x] milk")
+        check("task: ticked box unticks", LineEditing.toggleTask(line: "- [x] milk") == "- [ ] milk")
+        let taskEdit = LineEditing.toggleTask(in: "milk\n", selection: NSRange(location: 2, length: 0))
+        check("task: caret follows the text it was in",
+              applied("milk\n", taskEdit) == "- [ ] milk\n" && taskEdit.selection.location == 8)
+        check("task: empty note gets a box",
+              applied("", LineEditing.toggleTask(in: "", selection: NSRange(location: 0, length: 0))) == "- [ ] ")
+
+        // Every kind of line break keeps lines apart when they move.
+        check("move up: CRLF lines stay separate",
+              applied("a\r\nb\r\nc\r\n", LineEditing.moveLines(in: "a\r\nb\r\nc\r\n", selection: NSRange(location: 3, length: 0), up: true)) == "b\r\na\r\nc\r\n")
+        check("move up: the CRLF last line keeps the join's break",
+              applied("a\r\nb", LineEditing.moveLines(in: "a\r\nb", selection: NSRange(location: 3, length: 0), up: true)) == "b\r\na")
+        check("move up: a ⌃↩ line break (U+2028) isn't merged away",
+              applied("todo\nmilk\u{2028}eggs\nbread",
+                      LineEditing.moveLines(in: "todo\nmilk\u{2028}eggs\nbread", selection: NSRange(location: 6, length: 0), up: true))
+                == "milk\u{2028}todo\neggs\nbread")
+        let intoLast = LineEditing.moveLines(in: "ab\nc", selection: NSRange(location: 0, length: 3), up: false)
+        check("move down: the selection stays inside the text",
+              intoLast.map { NSMaxRange($0.selection) <= ($0.replacement as NSString).length } == true)
+        check("task: a tab after the bullet", LineEditing.toggleTask(line: "-\tmilk") == "- [ ] milk")
+        check("task: CRLF line keeps its break",
+              applied("milk\r\nnext", LineEditing.toggleTask(in: "milk\r\nnext", selection: NSRange(location: 0, length: 0))) == "- [ ] milk\r\nnext")
+
+        // Whole-line edits never complete a shortcode; only a typed
+        // character does. Driven through the real delegate.
+        let shortcodeView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let shortcodeCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { "" }, set: { _ in }))
+        shortcodeView.delegate = shortcodeCoordinator
+        shortcodeView.string = "notes\nship :rocket:"
+        shortcodeView.setSelectedRange(NSRange(location: 0, length: (shortcodeView.string as NSString).length))
+        LineEditing.apply(
+            LineEditing.toggleTask(in: shortcodeView.string, selection: shortcodeView.selectedRange()),
+            to: shortcodeView
+        )
+        check("⌘L: a literal shortcode stays literal", shortcodeView.string == "- [ ] notes\n- [ ] ship :rocket:")
+        shortcodeView.string = "a :)\nb"
+        shortcodeView.setSelectedRange(NSRange(location: 0, length: 0))
+        if let edit = LineEditing.moveLines(in: shortcodeView.string, selection: shortcodeView.selectedRange(), up: false) {
+            LineEditing.apply(edit, to: shortcodeView)
+        }
+        check("⌥↓: a literal :) stays literal", shortcodeView.string == "b\na :)")
+        shortcodeView.string = "ship :rocket:"
+        shortcodeView.setSelectedRange(NSRange(location: 13, length: 0))
+        LineEditing.apply(
+            LineEditing.toggleTask(in: shortcodeView.string, selection: shortcodeView.selectedRange()),
+            to: shortcodeView
+        )
+        check("⌘L with the caret right after a shortcode leaves it literal",
+              shortcodeView.string == "- [ ] ship :rocket:")
+
+        // ⌥↑ is handled by the note's own view, so a text field keeps it.
+        func optionArrow(_ up: Bool) -> NSEvent {
+            let key = String(UnicodeScalar(up ? NSUpArrowFunctionKey : NSDownArrowFunctionKey)!)
+            return NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [.option, .function, .numericPad],
+                timestamp: 0, windowNumber: 0, context: nil, characters: key,
+                charactersIgnoringModifiers: key, isARepeat: false, keyCode: up ? 126 : 125
+            )!
+        }
+        let lineView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        lineView.string = "one\ntwo"
+        lineView.setSelectedRange(NSRange(location: 5, length: 0))
+        lineView.keyDown(with: optionArrow(true))
+        check("⌥↑ in the note moves the line", lineView.string == "two\none")
+        lineView.keyDown(with: optionArrow(false))
+        check("⌥↓ moves it back", lineView.string == "one\ntwo")
+
+        // Inline styling edge cases the review turned up.
+        let inline = NSTextStorage(string: "* buy *milk* today\nrun `ls *.txt *.md` now\nhttps://en.wikipedia.org/wiki/Foo_(bar) and (https://x.io).\n")
+        MarkdownStyler.restyle(inline, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        let inlineNS = inline.string as NSString
+        func fontAt(_ needle: String, offset: Int = 0) -> NSFont? {
+            inline.attribute(.font, at: inlineNS.range(of: needle).location + offset, effectiveRange: nil) as? NSFont
+        }
+        check("emphasis: a bullet isn't an opening *",
+              fontAt("buy")?.fontDescriptor.symbolicTraits.contains(.italic) == false)
+        check("emphasis: *milk* after a bullet is italic",
+              fontAt("milk")?.fontDescriptor.symbolicTraits.contains(.italic) == true)
+        check("emphasis: asterisks inside code stay code",
+              inline.attribute(.foregroundColor, at: inlineNS.range(of: "*.txt").location, effectiveRange: nil) as? NSColor
+                == Palette.for(.dark).text)
+        var linkRange = NSRange()
+        _ = inline.attribute(.wispLink, at: inlineNS.range(of: "Foo_").location, effectiveRange: &linkRange)
+        check("links: a balanced ) belongs to the URL",
+              inlineNS.substring(with: linkRange).hasSuffix("Foo_(bar)"))
+        _ = inline.attribute(.wispLink, at: inlineNS.range(of: "x.io").location, effectiveRange: &linkRange)
+        check("links: an enclosing ) doesn't", inlineNS.substring(with: linkRange) == "https://x.io")
+        check("links: non-ASCII URLs still open",
+              MarkdownStyler.linkURL("https://de.wikipedia.org/wiki/Straße") != nil)
+
+        // Open on Pointer's Screen: centred stays centred.
+        let small = NSRect(x: 0, y: 0, width: 1512, height: 945)
+        let big = NSRect(x: 1512, y: 0, width: 2560, height: 1410)
+        let centred = NSRect(x: 356, y: 152, width: 800, height: 640)
+        let carried = PanelFrameStore.carried(centred, size: centred.size, from: small, to: big)
+        check("carry: a centred panel lands centred", abs(carried.midX - big.midX) < 1 && abs(carried.midY - big.midY) < 1)
+        check("carry: at the size asked for", carried.size == centred.size)
+        check("carry: still fits a smaller screen",
+              small.contains(PanelFrameStore.carried(carried, size: NSSize(width: 1100, height: 1200), from: big, to: small)))
+
+        check("menu shortcut: minus shows as a plain hyphen",
+              HotKey(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey)).menuKeyEquivalent?.0 == "-")
+        check("menu shortcut: F-keys fall back to the title",
+              HotKey(keyCode: UInt32(kVK_F1), modifiers: UInt32(optionKey)).menuKeyEquivalent == nil)
+
+        check("fences: indented and bare both count",
+              MarkdownStyler.fenceLineStarts(in: "a\n  ```swift\nb\n```\n" as NSString) == [2, 15])
+        check("fences: backticks mid-line don't",
+              MarkdownStyler.fenceLineStarts(in: "say ```this``` inline\n" as NSString).isEmpty)
+        let merged = MinimalTextEditor.Coordinator.merge(
+            NSRange(location: 10, length: 5), NSRange(location: 2, length: 3), delta: 3
+        )
+        check("pending edit: an earlier insert shifts the older range's end",
+              merged.location == 2 && NSMaxRange(merged) == 18)
+
+        let linked = NSTextStorage(string: "see https://example.com now\n`https://in.code`\n")
+        MarkdownStyler.restyle(linked, face: .charter, size: .medium, theme: .light, transparency: .off)
+        check("links: a URL in prose is marked", runs(.wispLink, in: linked) == 1)
+
         // MARK: - Tips
 
         check("tips: numeric compare, not lexicographic",
@@ -704,23 +939,27 @@ enum SelfTests {
               Tips.all.contains { $0.version == Tips.version })
 
         check("tips: no marker shows everything",
-              Tips.unseen(since: nil).count == min(Tips.all.count, 6))
+              Tips.unseen(since: nil).count == Tips.all.count)
         check("tips: current marker shows nothing",
               Tips.unseen(since: Tips.version).isEmpty)
         check("tips: a marker from the future shows nothing",
               Tips.unseen(since: "99.0.0").isEmpty)
         check("tips: an old marker shows the newest ones",
-              Tips.unseen(since: "0.1.41").allSatisfy { $0.version == "0.1.42" })
+              Tips.unseen(since: "0.1.42").allSatisfy { $0.version == "0.1.44" })
         check("tips: an old marker doesn't re-show what they've seen",
               !Tips.unseen(since: "0.1.41").contains { $0.version == "0.1.41" })
         check("tips: a very old marker shows the lot",
-              Tips.unseen(since: "0.1.20").count == min(Tips.all.count, 6))
+              Tips.unseen(since: "0.1.20").count == Tips.all.count)
         check("tips: the limit is respected",
               Tips.unseen(since: nil, limit: 2).count == 2)
         check("tips: every tip says something",
-              Tips.all.allSatisfy { !$0.keys.isEmpty && !$0.what.isEmpty })
+              Tips.all.allSatisfy { !$0.keys.isEmpty })
         check("tips: ids are unique",
               Set(Tips.all.map(\.id)).count == Tips.all.count)
+
+        let helpKeys = Set(HelpContent.sections(hotKey: "⌥Space").flatMap(\.rows).map(\.tipKey))
+        check("tips: every tip names a row in the help",
+              Tips.all.allSatisfy { helpKeys.contains($0.keys) })
 
         // MARK: - PanelFrameStore.clamped
 
@@ -750,6 +989,25 @@ enum SelfTests {
                 NSRect(x: -3000, y: -3000, width: 9999, height: 9999), to: screen)
                 == screen)
 
+        let sliver = PanelFrameStore.clamped(NSRect(x: 100, y: 100, width: 90, height: 1200), to: screen)
+        check("clamp: a sliver of a panel grows back to the smallest usable width",
+              sliver.width == PanelFrameStore.smallest.width && sliver.height == 1200)
+        check("clamp: the screen still wins over the minimum",
+              PanelFrameStore.clamped(
+                NSRect(x: 0, y: 0, width: 100, height: 100),
+                to: NSRect(x: 0, y: 0, width: 300, height: 200)).size == NSSize(width: 300, height: 200))
+
+        // MARK: - Caret
+
+        let caretFont = NSFont.systemFont(ofSize: 20)
+        let line = NSRect(x: 10, y: 300, width: 1, height: 33)
+        let trimmed = CaretTextView.caretRect(in: line, font: caretFont)
+        check("caret: trimmed to the font's ascent plus descent",
+              trimmed.height == (caretFont.ascender - caretFont.descender).rounded(.up))
+        check("caret: keeps the line's bottom edge", trimmed.maxY == line.maxY)
+        check("caret: never taller than the line it's in",
+              CaretTextView.caretRect(in: NSRect(x: 0, y: 0, width: 1, height: 10), font: caretFont).height == 10)
+
         // MARK: - PanelFrameStore.bestScreen (multi-monitor restore)
 
         let laptop = NSRect(x: 0, y: 0, width: 1512, height: 944)
@@ -777,6 +1035,25 @@ enum SelfTests {
         } else {
             check("bestScreen: restore leaves an external-monitor panel alone", false)
         }
+
+        // MARK: - Outside-click monitor lifecycle
+
+        // Pure-ish: the monitor object can be exercised without a panel.
+        // Real click delivery needs a GUI session and a second app, so
+        // that part is manual — this pins start/stop idempotence and
+        // that the default preference is off.
+        var fired = 0
+        let monitor = OutsideClickMonitor { fired += 1 }
+        check("outside-click: starts stopped", !monitor.isActive)
+        monitor.start()
+        check("outside-click: start activates", monitor.isActive)
+        monitor.start()
+        check("outside-click: starting twice is harmless", monitor.isActive)
+        monitor.stop()
+        check("outside-click: stop deactivates", !monitor.isActive)
+        monitor.stop()
+        check("outside-click: stopping twice is harmless", !monitor.isActive)
+        check("outside-click: never fired without a click", fired == 0)
 
         // MARK: - Summary
 

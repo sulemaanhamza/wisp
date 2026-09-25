@@ -19,17 +19,14 @@ struct HotKeyCaptureOverlay: View {
 
     var body: some View {
         ZStack {
-            // Solid background — no click-to-cancel here. Stray clicks
-            // while the user is thinking about a combo shouldn't drop
-            // them out of capture mode. Esc still cancels.
-            Rectangle()
-                .fill(theme == .dark
-                      ? Color(white: 0.08).opacity(0.96)
-                      : Color.white.opacity(0.98))
+            // No click-to-cancel here. Stray clicks while the user is
+            // thinking about a combo shouldn't drop them out of capture
+            // mode. Esc still cancels.
+            OverlayScrim(theme: theme)
 
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 Text("Press your shortcut")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 17, weight: .semibold))
                 Text("must include ⌘, ⌥, or ⌃ — Esc to cancel")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
@@ -38,11 +35,11 @@ struct HotKeyCaptureOverlay: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
-                        .padding(.top, 6)
-                        .padding(.horizontal, 24)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
                 }
             }
-            .padding(40)
+            .overlayCard(theme: theme)
         }
         .onAppear { startListening() }
         .onDisappear { stopListening() }

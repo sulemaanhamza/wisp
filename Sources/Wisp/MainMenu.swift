@@ -87,13 +87,21 @@ enum MainMenuBuilder {
         )
         italicItem.target = target
         formatMenu.addItem(italicItem)
+        formatMenu.addItem(NSMenuItem.separator())
+        let taskItem = NSMenuItem(
+            title: "Toggle Task",
+            action: #selector(AppDelegate.toggleTask(_:)),
+            keyEquivalent: "l"
+        )
+        taskItem.target = target
+        formatMenu.addItem(taskItem)
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         let smallItem = NSMenuItem(
-            title: "Smaller Text",
+            title: "Small Text",
             action: #selector(AppDelegate.setSmallFont(_:)),
             keyEquivalent: "1"
         )
@@ -107,12 +115,30 @@ enum MainMenuBuilder {
         mediumItem.target = target
         viewMenu.addItem(mediumItem)
         let largeItem = NSMenuItem(
-            title: "Larger Text",
+            title: "Large Text",
             action: #selector(AppDelegate.setLargeFont(_:)),
             keyEquivalent: "3"
         )
         largeItem.target = target
         viewMenu.addItem(largeItem)
+        let extraLargeItem = NSMenuItem(
+            title: "Largest Text",
+            action: #selector(AppDelegate.setExtraLargeFont(_:)),
+            keyEquivalent: "4"
+        )
+        extraLargeItem.target = target
+        viewMenu.addItem(extraLargeItem)
+        viewMenu.addItem(NSMenuItem.separator())
+        for (title, action, key) in [
+            ("Bigger", #selector(AppDelegate.makeTextLarger(_:)), "="),
+            ("Bigger", #selector(AppDelegate.makeTextLarger(_:)), "+"),
+            ("Smaller", #selector(AppDelegate.makeTextSmaller(_:)), "-"),
+            ("Actual Size", #selector(AppDelegate.resetTextSize(_:)), "0"),
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = target
+            viewMenu.addItem(item)
+        }
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

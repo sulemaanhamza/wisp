@@ -14,6 +14,10 @@ final class PanelController {
     private let inner: NSView
     private let outer: NSView
     private var frameObservers: [NSObjectProtocol] = []
+    private var outsideClick: OutsideClickMonitor?
+    /// Where "Open on Pointer's Screen" last put the panel. A frame
+    /// Wisp chose isn't the user's placement, so it isn't saved.
+    private var carriedFrame: NSRect?
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -39,6 +43,7 @@ final class PanelController {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        panel.contentMinSize = PanelFrameStore.smallest
 
         // Outer container: just hosts inner. No own shadow, no own bg.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))
@@ -133,11 +138,15 @@ final class PanelController {
         for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification] {
             let token = NotificationCenter.default.addObserver(
                 forName: name, object: panel, queue: .main
-            ) { [weak panel] _ in
+            ) { [weak self, weak panel] _ in
                 // queue: .main guarantees this runs on the main actor;
                 // assumeIsolated lets us touch panel.frame without a hop.
                 MainActor.assumeIsolated {
                     guard let panel else { return }
+                    if let carried = self?.carriedFrame {
+                        if panel.frame == carried { return }
+                        self?.carriedFrame = nil
+                    }
                     guard let screen = panel.screen?.visibleFrame
                             ?? NSScreen.main?.visibleFrame else { return }
                     let fitted = PanelFrameStore.clamped(panel.frame, to: screen)
@@ -174,6 +183,34 @@ final class PanelController {
         }
 
         panel.onDismiss = { [weak self] in self?.dismiss() }
+
+        outsideClick = OutsideClickMonitor { [weak self] in
+            guard let self, self.panel.isVisible else { return }
+            // A click elsewhere while the user is mid-task in an overlay
+            // — rebinding the shortcut, reading the tour — shouldn't
+            // yank the panel away. Same set the Esc cascade protects.
+            if self.model.showHotKeyCapture || self.model.showTour { return }
+            // Mid-composition, a click on the input method's candidate
+            // window or accent picker belongs to Wisp's own typing, even
+            // though another process draws it.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return }
+            self.dismiss()
+        }
+        model.onDismissPreferenceChange = { [weak self] in
+            self?.syncOutsideClickMonitor()
+        }
+    }
+
+    /// The monitor runs only while the panel is showing and the
+    /// preference is on. Every other moment it's stopped, so Wisp
+    /// isn't observing clicks it has no use for.
+    private func syncOutsideClickMonitor() {
+        guard let outsideClick else { return }
+        if panel.isVisible && model.dismissOnOutsideClick {
+            outsideClick.start()
+        } else {
+            outsideClick.stop()
+        }
     }
 
     func openIfNeeded() {
@@ -184,21 +221,37 @@ final class PanelController {
 
     /// Every dismissal funnels through here: flush the pending save,
     /// checkpoint history, then hide.
+    ///
+    /// Hidden at once, not faded. A panel that's fading out is still
+    /// the key window, so whatever the user types next — they've just
+    /// dismissed it to type somewhere else — would land in the note.
     func dismiss() {
         guard panel.isVisible else { return }
         model.saveAndCheckpoint()
         panel.orderOut(nil)
+        syncOutsideClickMonitor()
     }
 
     func toggle() {
         if panel.isVisible {
             dismiss()
         } else {
+            moveToPointerScreenIfWanted()
+            panel.alphaValue = 0
             // No re-centering — the panel keeps the size and position the
             // user last left it (restored from PanelFrameStore on launch,
             // kept fresh by the move/resize observers).
             panel.makeKeyAndOrderFront(nil)
+            // A short fade rather than a pop. Fading is fine under
+            // Reduce Motion — it's movement and scaling that setting
+            // exists to stop — so there's no second path.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+                panel.animator().alphaValue = 1
+            }
             applyChrome()
+            syncOutsideClickMonitor()
             // Pick up changes another Mac wrote to scratchpad.md while
             // we were dismissed — covers the iCloud/Dropbox sync case.
             // Cheap (one stat + maybe one read), so safe to do every
@@ -223,8 +276,26 @@ final class PanelController {
         }
     }
 
+    /// With "Open on Pointer's Screen" on, carry the panel to the screen
+    /// the pointer is on, at the same place relative to that screen.
+    private func moveToPointerScreenIfWanted() {
+        guard model.opensOnPointerScreen else { return }
+        let pointer = NSEvent.mouseLocation
+        guard let target = NSScreen.screens.first(where: { NSMouseInRect(pointer, $0.frame, false) }),
+              let current = panel.screen,
+              target != current else { return }
+        // The size the user chose, not whatever a smaller screen last
+        // squeezed it to.
+        let size = PanelFrameStore.load()?.size ?? panel.frame.size
+        let frame = PanelFrameStore.carried(
+            panel.frame, size: size, from: current.visibleFrame, to: target.visibleFrame
+        )
+        carriedFrame = frame
+        panel.setFrame(frame, display: false)
+    }
+
     private func applyChrome() {
-        let chrome = Chrome.for(model.theme, transparency: model.transparency)
+        let chrome = Chrome.for(model.theme, transparency: model.effectiveTransparency)
         panel.appearance = NSAppearance(named: chrome.appearance)
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)
