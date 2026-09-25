@@ -36,7 +36,29 @@ mkdir -p "$BOX"
 # developer's own values and put them back afterwards.
 SAVED_FOLDER="$(defaults read Wisp ScratchpadFolder 2>/dev/null || true)"
 SAVED_FRAME="$(defaults read Wisp PanelFrame 2>/dev/null || true)"
+# Version history always lives in the real Application Support folder,
+# whatever the storage folder is, and the app snapshots its note on
+# launch. Without this, every run filed the test note into the
+# developer's history — and with the ring full, pushed out their
+# oldest real version.
+HISTORY="$HOME/Library/Application Support/Wisp/History"
+HISTORY_BACKUP="$(mktemp -d)"
+BACKED_UP=0
+if [[ -d "$HISTORY" ]]; then
+    cp -Rp "$HISTORY/." "$HISTORY_BACKUP/" && BACKED_UP=1
+fi
 restore() {
+    # File by file, never a wholesale replace: drop what this run
+    # added, put back what it pruned. Only with a complete backup.
+    if (( BACKED_UP )); then
+        for f in "$HISTORY"/*; do
+            [[ -e "$f" && ! -e "$HISTORY_BACKUP/$(basename "$f")" ]] && rm -f "$f"
+        done
+        for f in "$HISTORY_BACKUP"/*; do
+            [[ -e "$f" && ! -e "$HISTORY/$(basename "$f")" ]] && cp -p "$f" "$HISTORY/"
+        done
+    fi
+    rm -rf "$HISTORY_BACKUP"
     if [[ -n "$SAVED_FOLDER" ]]; then defaults write Wisp ScratchpadFolder "$SAVED_FOLDER"; else defaults delete Wisp ScratchpadFolder 2>/dev/null || true; fi
     if [[ -n "$SAVED_FRAME"  ]]; then defaults write Wisp PanelFrame -string "$SAVED_FRAME";     else defaults delete Wisp PanelFrame 2>/dev/null || true; fi
     rm -rf "$BOX"
