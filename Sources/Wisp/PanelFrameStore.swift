@@ -19,6 +19,11 @@ enum PanelFrameStore {
     /// Reject degenerate / absurd sizes from a corrupted default.
     static let minSize: CGFloat = 200
 
+    /// The smallest the panel can be dragged to. Below this the footer
+    /// wraps and the text column is a few characters wide; at the
+    /// extreme the panel could be narrowed until it all but vanished.
+    static let smallest = NSSize(width: 440, height: 280)
+
     static func save(_ frame: NSRect, defaults: UserDefaults = .standard) {
         defaults.set(NSStringFromRect(frame), forKey: key)
     }
@@ -52,8 +57,10 @@ enum PanelFrameStore {
 
     static func clamped(_ frame: NSRect, to screen: NSRect) -> NSRect {
         var result = frame
-        result.size.width = min(result.width, screen.width)
-        result.size.height = min(result.height, screen.height)
+        // Grown to the smallest usable size first (a frame saved before
+        // there was one), then shrunk to the screen, which wins.
+        result.size.width = min(max(result.width, smallest.width), screen.width)
+        result.size.height = min(max(result.height, smallest.height), screen.height)
         result.origin.x = min(max(result.minX, screen.minX), screen.maxX - result.width)
         result.origin.y = min(max(result.minY, screen.minY), screen.maxY - result.height)
         return result

@@ -844,6 +844,10 @@ enum SelfTests {
         check("tips: ids are unique",
               Set(Tips.all.map(\.id)).count == Tips.all.count)
 
+        let helpKeys = Set(HelpContent.sections(hotKey: "⌥Space").flatMap(\.rows).map(\.tipKey))
+        check("tips: every tip names a row in the help",
+              Tips.all.allSatisfy { helpKeys.contains($0.keys) })
+
         // MARK: - PanelFrameStore.clamped
 
         let screen = NSRect(x: 0, y: 0, width: 2560, height: 1400)
@@ -871,6 +875,25 @@ enum SelfTests {
               PanelFrameStore.clamped(
                 NSRect(x: -3000, y: -3000, width: 9999, height: 9999), to: screen)
                 == screen)
+
+        let sliver = PanelFrameStore.clamped(NSRect(x: 100, y: 100, width: 90, height: 1200), to: screen)
+        check("clamp: a sliver of a panel grows back to the smallest usable width",
+              sliver.width == PanelFrameStore.smallest.width && sliver.height == 1200)
+        check("clamp: the screen still wins over the minimum",
+              PanelFrameStore.clamped(
+                NSRect(x: 0, y: 0, width: 100, height: 100),
+                to: NSRect(x: 0, y: 0, width: 300, height: 200)).size == NSSize(width: 300, height: 200))
+
+        // MARK: - Caret
+
+        let caretFont = NSFont.systemFont(ofSize: 20)
+        let line = NSRect(x: 10, y: 300, width: 1, height: 33)
+        let trimmed = CaretTextView.caretRect(in: line, font: caretFont)
+        check("caret: trimmed to the font's ascent plus descent",
+              trimmed.height == (caretFont.ascender - caretFont.descender).rounded(.up))
+        check("caret: keeps the line's bottom edge", trimmed.maxY == line.maxY)
+        check("caret: never taller than the line it's in",
+              CaretTextView.caretRect(in: NSRect(x: 0, y: 0, width: 1, height: 10), font: caretFont).height == 10)
 
         // MARK: - PanelFrameStore.bestScreen (multi-monitor restore)
 

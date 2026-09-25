@@ -46,6 +46,7 @@ final class PanelController {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        panel.contentMinSize = PanelFrameStore.smallest
 
         // Outer container: just hosts inner. No own shadow, no own bg.
         outer = NSView(frame: NSRect(origin: .zero, size: panelSize))

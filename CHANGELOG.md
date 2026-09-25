@@ -16,6 +16,7 @@ Notable changes to Wisp. Newest first.
 
 ### Fixed
 
+- **The panel could be resized down to a sliver.** Past a point the footer broke and, narrowed far enough, the panel all but disappeared. It now stops at 440×280, and a smaller size saved by an earlier version grows back to that on the next launch.
 - A `---` line inside a fenced code block no longer draws a divider through the code.
 - **A panel kept on an external monitor was dragged back to the laptop screen on every launch.** 0.1.43 started keeping the restored window inside the screen, but it used the main screen rather than the one the panel was actually on. It now restores to the screen it was saved on.
 
@@ -27,6 +28,8 @@ Notable changes to Wisp. Newest first.
 - **The dark panel has an edge.** A hairline border keeps it from dissolving into a dark desktop, matching the light theme's.
 - **Selection follows your accent colour** in both themes.
 - **A new app icon** on Apple's icon grid: a rounded tile with a margin and a soft shadow, instead of a full-bleed square. It no longer shows as a hard square on older macOS, or shrunk into a grey tile on macOS 26.
+- **The caret is the height of the text.** It used to span the whole line, extra spacing included, so it stood about a third taller than the letters beside it.
+- **A clearer shortcuts sheet.** Each row now reads what you want, then how: keys as keycaps, markdown as code, menu items as plain text. It uses two columns when there's room. New items are tagged where they live instead of repeated in a group at the top. The first row shows your own summon shortcut, not the default.
 - **Quieter, more consistent chrome.** Footer and heading-bar buttons brighten on hover. The update states use proper symbols. The word count hides on an empty note, and "Filed to Inbox" confirms an archive. The welcome, shortcut and update prompts share one card style, and Return dismisses the welcome.
 - **A tidier menu.** The right-click menu is grouped by what things do, and shows your summon shortcut the way macOS shows shortcuts. On macOS 26 it has icons like the system's menus.
 - **Accessibility.** VoiceOver names the note and every icon button. Increase Contrast strengthens the border and footer. Reduce Transparency makes the panel solid, whatever the Transparency menu says.

@@ -14,7 +14,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     var transparency: Transparency
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
+        let scrollView = CaretTextView.scrollableTextView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false

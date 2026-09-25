@@ -691,7 +691,7 @@ struct EditorView: View {
                 .transition(overlayTransition)
             }
             if model.showHelp {
-                HelpOverlay(theme: model.theme, newTips: model.newTips) {
+                HelpOverlay(theme: model.theme, hotKey: model.hotKey.displayString, newTips: model.newTips) {
                     withAnimation(overlayAnimation) {
                         model.closeHelp()
                     }

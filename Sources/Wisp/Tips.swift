@@ -5,7 +5,9 @@ struct Tip: Identifiable, Equatable {
     /// The release that introduced it. Anyone whose stored marker is
     /// older than this hasn't been shown the tip yet.
     let version: String
-    /// Keystroke or syntax, set in monospace — matches HelpOverlay.
+    /// The help row this flags as new: its `how`, joined by spaces
+    /// (`HelpContent.Row.tipKey`). The self-tests hold every tip to a
+    /// real row, so a renamed row can't silently orphan one.
     let keys: String
     let what: String
 
@@ -31,11 +33,11 @@ enum Tips {
     static let all: [Tip] = [
         Tip(version: "0.1.44", keys: "⌘L",
             what: "make a line a task, or tick it off"),
-        Tip(version: "0.1.44", keys: "⌥↑  /  ⌥↓",
+        Tip(version: "0.1.44", keys: "⌥↑ ⌥↓",
             what: "move the line up or down"),
         Tip(version: "0.1.44", keys: "⌘-click",
             what: "open a link"),
-        Tip(version: "0.1.44", keys: "⌘-  /  ⌘=",
+        Tip(version: "0.1.44", keys: "⌘- ⌘= ⌘0",
             what: "text size, now with a fourth, larger step"),
         Tip(version: "0.1.44", keys: "Font",
             what: "right-click the menu bar icon — San Francisco and Verdana"),
@@ -45,7 +47,7 @@ enum Tips {
             what: "file this note in the Inbox, start fresh"),
         Tip(version: "0.1.41", keys: "⌘F",
             what: "find anything (↵ / ⇧↵ to step through)"),
-        Tip(version: "0.1.42", keys: "`code`   ```",
+        Tip(version: "0.1.42", keys: "`code` ```",
             what: "monospace, inline or fenced"),
         Tip(version: "0.1.42", keys: "Transparency",
             what: "right-click the menu bar icon — how much shows through"),
