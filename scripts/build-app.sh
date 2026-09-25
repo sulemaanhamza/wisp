@@ -37,7 +37,10 @@ done
 
 BINARY="$ARCH_DIR/$NAME"
 lipo -create "${SLICES[@]}" -output "$BINARY"
-echo "  = $(lipo -info "$BINARY")"
+# Local symbols are only useful to a debugger; stripping them roughly
+# halves the download. Crash logs still symbolicate global symbols.
+strip -x "$BINARY"
+echo "  = $(lipo -info "$BINARY"), $(du -h "$BINARY" | cut -f1 | tr -d ' ')"
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
