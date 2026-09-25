@@ -13,12 +13,7 @@ struct HelpOverlay: View {
             // text is clearly readable; the editor fades to barely
             // visible behind, which signals "modal mode" without
             // competing for attention.
-            Rectangle()
-                .fill(theme == .dark
-                      ? Color(white: 0.08).opacity(0.96)
-                      : Color.white.opacity(0.98))
-                .contentShape(Rectangle())
-                .onTapGesture { onDismiss() }
+            OverlayScrim(theme: theme, sheet: true, onTap: onDismiss)
 
             // Scrolls when it doesn't fit. The list only ever grows,
             // and a panel the user has made small is still theirs.
@@ -40,7 +35,10 @@ struct HelpOverlay: View {
                 ])
                 section("Format", items: [
                     ("⌘B  /  ⌘I", "bold  /  italic (toggle)"),
-                    ("⌘1  /  ⌘2  /  ⌘3", "text size"),
+                    ("⌘L", "make a line a task, or tick it off"),
+                    ("⌥↑  /  ⌥↓", "move the line up or down"),
+                    ("⌘-  /  ⌘=  /  ⌘0", "text size: smaller, bigger, default"),
+                    ("⌘-click", "open a link"),
                 ])
                 section("Smart editing — type and press Enter", items: [
                     ("-   *   +", "unordered list, auto-continues"),
@@ -57,11 +55,12 @@ struct HelpOverlay: View {
                     (":bulb:   :warning:", "💡  ⚠️"),
                 ])
                 section("Settings — right-click the menu bar icon", items: [
-                    ("Font", "pick from six preinstalled fonts"),
+                    ("Font", "eight preinstalled fonts, serif and sans"),
                     ("Transparency", "how much desktop shows through"),
                     ("Set Shortcut…", "rebind the global hotkey"),
                     ("Launch at Login", "start automatically at login"),
                     ("Close When Clicking Outside", "dismiss by clicking anywhere else"),
+                    ("Open on Pointer's Screen", "follow the pointer across displays"),
                     ("Storage Location…", "any folder — iCloud Drive, Dropbox for sync"),
                     ("Reveal in Finder", "scratchpad, Inbox, or version history"),
                 ])
@@ -71,8 +70,8 @@ struct HelpOverlay: View {
                     .foregroundStyle(.tertiary)
                     .padding(.top, 8)
             }
-            .padding(.horizontal, 40)
-            .padding(.vertical, 36)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 32)
             .frame(maxWidth: 560, alignment: .leading)
             }
         }

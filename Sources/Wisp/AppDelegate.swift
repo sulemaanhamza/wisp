@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let model = EditorModel()
     let updater = Updater()
     private var menuBarController: MenuBarController?
@@ -43,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             currentDismissOnOutsideClick: { [weak self] in self?.model.dismissOnOutsideClick ?? false },
             onToggleDismissOnOutsideClick: { [weak self] in
                 self?.model.dismissOnOutsideClick.toggle()
+            },
+            currentOpensOnPointerScreen: { [weak self] in self?.model.opensOnPointerScreen ?? false },
+            onToggleOpensOnPointerScreen: { [weak self] in
+                self?.model.opensOnPointerScreen.toggle()
             },
             isStorageCustom: { StorageLocation.isCustom },
             onPickStorageLocation: { [weak self] in
@@ -128,6 +132,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func setSmallFont(_ sender: Any?) { model.fontSize = .small }
     @objc func setMediumFont(_ sender: Any?) { model.fontSize = .medium }
     @objc func setLargeFont(_ sender: Any?) { model.fontSize = .large }
+    @objc func makeTextLarger(_ sender: Any?) { model.makeTextLarger() }
+    @objc func makeTextSmaller(_ sender: Any?) { model.makeTextSmaller() }
+    @objc func resetTextSize(_ sender: Any?) { model.resetTextSize() }
+
+    @objc func moveLineUp(_ sender: Any?) { moveLines(up: true) }
+    @objc func moveLineDown(_ sender: Any?) { moveLines(up: false) }
+
+    private func moveLines(up: Bool) {
+        guard let textView = scratchpadTextView(),
+              let edit = LineEditing.moveLines(
+                in: textView.string, selection: textView.selectedRange(), up: up
+              ) else { return }
+        LineEditing.apply(edit, to: textView)
+    }
+
+    /// The line commands act only on the note. Disabled anywhere else,
+    /// the key goes to whatever has focus instead — ⌥↑ in the find
+    /// field still moves to its start.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(moveLineUp(_:)), #selector(moveLineDown(_:)), #selector(toggleTask(_:)):
+            return scratchpadTextView() != nil
+        default:
+            return true
+        }
+    }
+
+    @objc func toggleTask(_ sender: Any?) {
+        guard let textView = scratchpadTextView() else { return }
+        LineEditing.apply(
+            LineEditing.toggleTask(in: textView.string, selection: textView.selectedRange()),
+            to: textView
+        )
+    }
 
     /// The scratchpad's text view, or nil when focus is somewhere else.
     /// The find field is an NSTextView too — without the field-editor
@@ -222,19 +260,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showStandardAboutPanel() {
-        let credits = NSAttributedString(
-            string: """
-            A minimalist macOS scratchpad — open with one keypress, type, dismiss.
-
-            MIT licensed. Source at github.com/sulemaanhamza/wisp.
-
-            Body type set in Charter (default), Iowan Old Style, Hoefler Text, Palatino, Optima, or Avenir Next — all preinstalled on macOS.
-            """,
+        let credits = NSMutableAttributedString(
+            string: "A scratchpad one keypress away. MIT licensed.\n",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]
         )
+        credits.append(NSAttributedString(
+            string: "github.com/sulemaanhamza/wisp",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .link: URL(string: "https://github.com/sulemaanhamza/wisp")!,
+            ]
+        ))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        credits.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: credits.length))
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [

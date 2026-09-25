@@ -15,6 +15,12 @@ final class PanelController {
     private let outer: NSView
     private var frameObservers: [NSObjectProtocol] = []
     private var outsideClick: OutsideClickMonitor?
+    /// True while the dismiss fade runs. The panel is still ordered in,
+    /// so `isVisible` alone would call it open.
+    private var isHiding = false
+
+    /// On screen and staying there.
+    private var isShown: Bool { panel.isVisible && !isHiding }
 
     init(model: EditorModel, updater: Updater) {
         self.model = model
@@ -177,7 +183,7 @@ final class PanelController {
         panel.onDismiss = { [weak self] in self?.dismiss() }
 
         outsideClick = OutsideClickMonitor { [weak self] in
-            guard let self, self.panel.isVisible else { return }
+            guard let self, self.isShown else { return }
             // A click elsewhere while the user is mid-task in an overlay
             // — rebinding the shortcut, reading the tour — shouldn't
             // yank the panel away. Same set the Esc cascade protects.
@@ -194,7 +200,7 @@ final class PanelController {
     /// isn't observing clicks it has no use for.
     private func syncOutsideClickMonitor() {
         guard let outsideClick else { return }
-        if panel.isVisible && model.dismissOnOutsideClick {
+        if isShown && model.dismissOnOutsideClick {
             outsideClick.start()
         } else {
             outsideClick.stop()
@@ -202,28 +208,57 @@ final class PanelController {
     }
 
     func openIfNeeded() {
-        if !panel.isVisible {
+        if !isShown {
             toggle()
         }
     }
 
     /// Every dismissal funnels through here: flush the pending save,
-    /// checkpoint history, then hide.
+    /// checkpoint history, then fade out. The save happens first, so
+    /// nothing depends on the fade finishing.
     func dismiss() {
-        guard panel.isVisible else { return }
+        guard isShown else { return }
         model.saveAndCheckpoint()
-        panel.orderOut(nil)
+        isHiding = true
         syncOutsideClickMonitor()
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.10
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                // Summoned again mid-fade: toggle() cleared the flag and
+                // is fading back in, so leave the panel where it is.
+                guard let self, self.isHiding else { return }
+                self.isHiding = false
+                self.panel.orderOut(nil)
+                self.panel.alphaValue = 1
+            }
+        })
     }
 
     func toggle() {
-        if panel.isVisible {
+        if isShown {
             dismiss()
         } else {
+            let wasVisible = panel.isVisible
+            isHiding = false
+            if !wasVisible {
+                moveToPointerScreenIfWanted()
+                panel.alphaValue = 0
+            }
             // No re-centering — the panel keeps the size and position the
             // user last left it (restored from PanelFrameStore on launch,
             // kept fresh by the move/resize observers).
             panel.makeKeyAndOrderFront(nil)
+            // A short fade rather than a pop. Fading is fine under
+            // Reduce Motion — it's movement and scaling that setting
+            // exists to stop — so there's no second path.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+                panel.animator().alphaValue = 1
+            }
             applyChrome()
             syncOutsideClickMonitor()
             // Pick up changes another Mac wrote to scratchpad.md while
@@ -250,8 +285,22 @@ final class PanelController {
         }
     }
 
+    /// With "Open on Pointer's Screen" on, carry the panel to the screen
+    /// the pointer is on, at the same place relative to that screen.
+    private func moveToPointerScreenIfWanted() {
+        guard model.opensOnPointerScreen else { return }
+        let pointer = NSEvent.mouseLocation
+        guard let target = NSScreen.screens.first(where: { NSMouseInRect(pointer, $0.frame, false) }),
+              let current = panel.screen,
+              target != current else { return }
+        var frame = panel.frame
+        frame.origin.x += target.visibleFrame.minX - current.visibleFrame.minX
+        frame.origin.y += target.visibleFrame.minY - current.visibleFrame.minY
+        panel.setFrame(PanelFrameStore.clamped(frame, to: target.visibleFrame), display: false)
+    }
+
     private func applyChrome() {
-        let chrome = Chrome.for(model.theme, transparency: model.transparency)
+        let chrome = Chrome.for(model.theme, transparency: model.effectiveTransparency)
         panel.appearance = NSAppearance(named: chrome.appearance)
         visualEffect.material = chrome.material
         visualEffect.appearance = NSAppearance(named: chrome.appearance)

@@ -18,16 +18,13 @@ struct HeaderBar: View {
                                 .foregroundStyle(.quaternary)
                                 .padding(.horizontal, 10)
                         }
-                        Button(action: { onJump(heading) }) {
+                        QuietButton(action: { onJump(heading) }, help: "Jump to “\(heading.name)”") {
                             Text(heading.name)
                                 .lineLimit(1)
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                        .help("Jump to “\(heading.name)”")
                     }
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 24)
                 .padding(.vertical, 14)
             }
             .font(.system(size: 11, weight: .regular))

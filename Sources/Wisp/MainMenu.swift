@@ -87,6 +87,30 @@ enum MainMenuBuilder {
         )
         italicItem.target = target
         formatMenu.addItem(italicItem)
+        formatMenu.addItem(NSMenuItem.separator())
+        let taskItem = NSMenuItem(
+            title: "Toggle Task",
+            action: #selector(AppDelegate.toggleTask(_:)),
+            keyEquivalent: "l"
+        )
+        taskItem.target = target
+        formatMenu.addItem(taskItem)
+        let upItem = NSMenuItem(
+            title: "Move Line Up",
+            action: #selector(AppDelegate.moveLineUp(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+        upItem.keyEquivalentModifierMask = [.option]
+        upItem.target = target
+        formatMenu.addItem(upItem)
+        let downItem = NSMenuItem(
+            title: "Move Line Down",
+            action: #selector(AppDelegate.moveLineDown(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        )
+        downItem.keyEquivalentModifierMask = [.option]
+        downItem.target = target
+        formatMenu.addItem(downItem)
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 
@@ -113,6 +137,17 @@ enum MainMenuBuilder {
         )
         largeItem.target = target
         viewMenu.addItem(largeItem)
+        viewMenu.addItem(NSMenuItem.separator())
+        for (title, action, key) in [
+            ("Bigger", #selector(AppDelegate.makeTextLarger(_:)), "="),
+            ("Bigger", #selector(AppDelegate.makeTextLarger(_:)), "+"),
+            ("Smaller", #selector(AppDelegate.makeTextSmaller(_:)), "-"),
+            ("Actual Size", #selector(AppDelegate.resetTextSize(_:)), "0"),
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.target = target
+            viewMenu.addItem(item)
+        }
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

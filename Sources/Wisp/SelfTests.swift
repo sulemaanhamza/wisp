@@ -179,7 +179,14 @@ enum SelfTests {
         check("FontSize.large  → 24pt", FontSize.large.pointSize == 24)
         check("FontSize cycles small→medium",  FontSize.small.next == .medium)
         check("FontSize cycles medium→large",  FontSize.medium.next == .large)
-        check("FontSize cycles large→small",   FontSize.large.next == .small)
+        check("FontSize cycles large→extraLarge", FontSize.large.next == .extraLarge)
+        check("FontSize cycles extraLarge→small", FontSize.extraLarge.next == .small)
+        check("FontSize larger stops at the top", FontSize.extraLarge.larger == .extraLarge)
+        check("FontSize smaller stops at the bottom", FontSize.small.smaller == .small)
+        check("FontSize larger steps", FontSize.medium.larger == .large)
+        check("FontSize smaller steps", FontSize.medium.smaller == .small)
+        check("word count: empty is zero", EditorModel.countWords("") == 0)
+        check("word count: counts words, not symbols", EditorModel.countWords("# Hi there — **you**") == 3)
         check("FontSize.small.rawValue", FontSize.small.rawValue == "small")
         check("FontSize.medium.rawValue", FontSize.medium.rawValue == "medium")
         check("FontSize.large.rawValue", FontSize.large.rawValue == "large")
@@ -190,7 +197,9 @@ enum SelfTests {
             check("FontFace \(face.displayName) familyName == displayName",
                   face.familyName == face.displayName)
         }
-        check("FontFace count = 6", FontFace.allCases.count == 6)
+        check("FontFace count = 8", FontFace.allCases.count == 8)
+        check("FontFace: every face resolves to a real font",
+              FontFace.allCases.allSatisfy { $0.font(size: 20) != nil })
         check("FontFace.charter.rawValue", FontFace.charter.rawValue == "charter")
         check("FontFace.iowanOldStyle.rawValue",
               FontFace.iowanOldStyle.rawValue == "iowanOldStyle")
@@ -690,6 +699,119 @@ enum SelfTests {
         check("restyle: plain prose gets no code marks",
               runs(.wispCodeBlock, in: plain) == 0 && runs(.backgroundColor, in: plain) == 0)
 
+        // MARK: - Paragraph restyle matches a full restyle
+
+        // The editor restyles only the paragraphs an edit touched. Every
+        // edit below has to leave the storage exactly as a from-scratch
+        // full restyle would — including the ones that open or close a
+        // fence, which change lines far from the edit.
+        let seed = """
+        # Title
+        Some **bold** and *italic* and `code` at https://example.com here.
+
+        - [ ] open task
+        - [x] done task
+        ---
+        ```
+        inside **not bold**
+        ```
+        ## Tail
+        last line
+        """
+        let edits: [(String, NSRange, String)] = [
+            ("type in prose", NSRange(location: 12, length: 0), "x"),
+            ("make a heading", NSRange(location: 8, length: 0), "## "),
+            ("open a fence mid-note", NSRange(location: 0, length: 0), "```\n"),
+            ("close it again", NSRange(location: 0, length: 4), ""),
+            ("break the closing fence", NSRange(location: (seed as NSString).range(of: "```\n## Tail").location, length: 1), ""),
+            ("tick a box", NSRange(location: (seed as NSString).range(of: "[ ]").location + 1, length: 1), "x"),
+            ("paste across lines", NSRange(location: 20, length: 30), "new\n**words**\n"),
+            ("delete everything after the title", NSRange(location: 8, length: (seed as NSString).length - 8 - 20), ""),
+        ]
+        for (name, range, replacement) in edits {
+            let partial = NSTextStorage(string: seed)
+            MarkdownStyler.restyle(partial, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+            let safe = NSRange(location: range.location, length: min(range.length, partial.length - range.location))
+            partial.replaceCharacters(in: safe, with: replacement)
+            MarkdownStyler.restyle(
+                partial, face: .charter, size: .medium, theme: .dark, transparency: .subtle,
+                edited: NSRange(location: safe.location, length: (replacement as NSString).length)
+            )
+            let full = NSTextStorage(string: partial.string)
+            MarkdownStyler.restyle(full, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+            check("paragraph restyle == full restyle: \(name)", partial.isEqual(to: full))
+        }
+
+        // Same property under random edits, seeded so a failure repeats.
+        var rng: UInt64 = 0x5EED
+        func roll(_ n: Int) -> Int {
+            rng = rng &* 6364136223846793005 &+ 1442695040888963407
+            return Int((rng >> 33) % UInt64(max(n, 1)))
+        }
+        let fragments = ["```\n", "\n", "# ", "**", "*", "`", "- [ ] ", "- [x] ", "---\n", "word ", "https://a.io ", "  ```\n"]
+        let fuzz = NSTextStorage(string: seed)
+        MarkdownStyler.restyle(fuzz, face: .charter, size: .medium, theme: .light, transparency: .strong)
+        var fuzzFailures = 0
+        for _ in 0..<300 {
+            let length = fuzz.length
+            let location = roll(length + 1)
+            let removing = roll(3) == 0 ? min(roll(12), length - location) : 0
+            let insert = roll(4) == 0 ? "" : fragments[roll(fragments.count)]
+            fuzz.replaceCharacters(in: NSRange(location: location, length: removing), with: insert)
+            MarkdownStyler.restyle(
+                fuzz, face: .charter, size: .medium, theme: .light, transparency: .strong,
+                edited: NSRange(location: location, length: (insert as NSString).length)
+            )
+            let full = NSTextStorage(string: fuzz.string)
+            MarkdownStyler.restyle(full, face: .charter, size: .medium, theme: .light, transparency: .strong)
+            if !fuzz.isEqual(to: full) { fuzzFailures += 1 }
+        }
+        check("paragraph restyle == full restyle: 300 random edits (\(fuzzFailures) differ)", fuzzFailures == 0)
+
+        // MARK: - Line editing
+
+        func applied(_ text: String, _ edit: LineEditing.Edit?) -> String? {
+            guard let edit else { return nil }
+            return (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+        }
+        check("move up: swaps with the line above",
+              applied("a\nb\nc", LineEditing.moveLines(in: "a\nb\nc", selection: NSRange(location: 2, length: 0), up: true)) == "b\na\nc")
+        check("move up: the last line carries its missing newline correctly",
+              applied("a\nb", LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 3, length: 0), up: true)) == "b\na")
+        check("move down: into the last line",
+              applied("a\nb", LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 0, length: 0), up: false)) == "b\na")
+        check("move up: nothing above the first line",
+              LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 0, length: 0), up: true) == nil)
+        check("move down: nothing below the last line",
+              LineEditing.moveLines(in: "a\nb", selection: NSRange(location: 3, length: 0), up: false) == nil)
+        check("move down: a two-line selection moves together",
+              applied("a\nb\nc\n", LineEditing.moveLines(in: "a\nb\nc\n", selection: NSRange(location: 0, length: 3), up: false)) == "c\na\nb\n")
+        let caret = LineEditing.moveLines(in: "one\ntwo\n", selection: NSRange(location: 6, length: 0), up: true)
+        check("move up: caret stays on the same character", caret?.selection.location == 2)
+        check("task: plain line gains a box", LineEditing.toggleTask(line: "milk") == "- [ ] milk")
+        check("task: bullet keeps its marker", LineEditing.toggleTask(line: "  * milk") == "  * [ ] milk")
+        check("task: open box ticks", LineEditing.toggleTask(line: "- [ ] milk") == "- [x] milk")
+        check("task: ticked box unticks", LineEditing.toggleTask(line: "- [x] milk") == "- [ ] milk")
+        let taskEdit = LineEditing.toggleTask(in: "milk\n", selection: NSRange(location: 2, length: 0))
+        check("task: caret follows the text it was in",
+              applied("milk\n", taskEdit) == "- [ ] milk\n" && taskEdit.selection.location == 8)
+        check("task: empty note gets a box",
+              applied("", LineEditing.toggleTask(in: "", selection: NSRange(location: 0, length: 0))) == "- [ ] ")
+
+        check("fences: indented and bare both count",
+              MarkdownStyler.fenceLineStarts(in: "a\n  ```swift\nb\n```\n" as NSString) == [2, 15])
+        check("fences: backticks mid-line don't",
+              MarkdownStyler.fenceLineStarts(in: "say ```this``` inline\n" as NSString).isEmpty)
+        let merged = MinimalTextEditor.Coordinator.merge(
+            NSRange(location: 10, length: 5), NSRange(location: 2, length: 3), delta: 3
+        )
+        check("pending edit: an earlier insert shifts the older range's end",
+              merged.location == 2 && NSMaxRange(merged) == 18)
+
+        let linked = NSTextStorage(string: "see https://example.com now\n`https://in.code`\n")
+        MarkdownStyler.restyle(linked, face: .charter, size: .medium, theme: .light, transparency: .off)
+        check("links: a URL in prose is marked", runs(.wispLink, in: linked) == 1)
+
         // MARK: - Tips
 
         check("tips: numeric compare, not lexicographic",
@@ -710,7 +832,7 @@ enum SelfTests {
         check("tips: a marker from the future shows nothing",
               Tips.unseen(since: "99.0.0").isEmpty)
         check("tips: an old marker shows the newest ones",
-              Tips.unseen(since: "0.1.41").allSatisfy { $0.version == "0.1.42" })
+              Tips.unseen(since: "0.1.42").allSatisfy { $0.version == "0.1.44" })
         check("tips: an old marker doesn't re-show what they've seen",
               !Tips.unseen(since: "0.1.41").contains { $0.version == "0.1.41" })
         check("tips: a very old marker shows the lot",

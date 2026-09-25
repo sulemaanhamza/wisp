@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BottomBar: View {
     let wordCount: Int
+    let notice: String?
     let saveFailed: Bool
     let fontSize: FontSize
     let onCycleFontSize: () -> Void
@@ -13,10 +14,24 @@ struct BottomBar: View {
     let hasUnseenTips: Bool
     let onHelpClick: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     var body: some View {
         HStack(spacing: 16) {
-            Text(wordsLabel)
-                .monospacedDigit()
+            // The notice stands in for the count briefly, so the footer
+            // never grows a second line of chrome.
+            ZStack(alignment: .leading) {
+                if let notice {
+                    Text(notice)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
+                } else if wordCount > 0 {
+                    Text(wordsLabel)
+                        .monospacedDigit()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: notice)
             if saveFailed {
                 Text("couldn't save")
                     .foregroundStyle(.orange)
@@ -24,7 +39,12 @@ struct BottomBar: View {
             }
             Spacer()
             updateIndicator
-            Button(action: onHelpClick) {
+            QuietButton(
+                action: onHelpClick,
+                help: hasUnseenTips
+                    ? "Shortcuts and formatting — something new in here"
+                    : "Keyboard shortcuts and formatting"
+            ) {
                 // Same beacon as the first-run dot, footer-sized. The
                 // two never appear together: unseen tips are only
                 // flagged for someone who has already dismissed the
@@ -38,41 +58,22 @@ struct BottomBar: View {
                         .font(.system(size: 11, weight: .regular))
                 }
                 .frame(minWidth: 24, minHeight: 20)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help(hasUnseenTips
-                  ? "Shortcuts and formatting — something new in here"
-                  : "Keyboard shortcuts and formatting")
-            .accessibilityLabel(hasUnseenTips
-                  ? "Keyboard shortcuts and formatting, new items"
-                  : "Keyboard shortcuts and formatting")
-            Button(action: onCycleTheme) {
+            QuietButton(action: onCycleTheme, help: themeButtonHelp) {
                 Image(systemName: themeIconName)
                     .font(.system(size: 11, weight: .regular))
                     .frame(width: 24, height: 20)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help(themeButtonHelp)
-            .accessibilityLabel(themeButtonHelp)
-            Button(action: onCycleFontSize) {
+            QuietButton(action: onCycleFontSize, help: "Text size (⌘- / ⌘=)") {
                 Text("Aa")
                     .font(.system(size: indicatorSize, weight: .medium, design: .serif))
                     .frame(width: 30, height: 20)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Cycle text size (⌘1 / ⌘2 / ⌘3)")
-            .accessibilityLabel("Cycle text size")
             Text("esc to close")
         }
         .font(.system(size: 11, weight: .regular))
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, 28)
+        .foregroundStyle(contrast == .increased ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+        .padding(.horizontal, 24)
         .padding(.vertical, 14)
     }
 
@@ -82,28 +83,19 @@ struct BottomBar: View {
         case .idle:
             EmptyView()
         case .available(let version, _):
-            Button(action: onUpdateClick) {
-                Text("↑ v\(version)")
+            QuietButton(action: onUpdateClick, help: "New version available") {
+                Label("v\(version)", systemImage: "arrow.up.circle")
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("New version available")
         case .downloading(let version):
-            Text("↓ downloading v\(version)…")
+            Label("downloading v\(version)…", systemImage: "arrow.down.circle")
         case .pending(let version):
-            Button(action: onUpdateClick) {
-                Text("↻ v\(version) ready — restart to apply")
+            QuietButton(action: onUpdateClick, help: "Restart Wisp to apply the update") {
+                Label("v\(version) ready — restart to apply", systemImage: "arrow.clockwise.circle")
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Restart Wisp to apply the update")
         case .failed(let version):
-            Button(action: onUpdateClick) {
-                Text("↗ v\(version) — download manually")
+            QuietButton(action: onUpdateClick, help: "Wisp couldn't replace itself. Opens the download page.") {
+                Label("v\(version) — download manually", systemImage: "arrow.up.forward.square")
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Wisp couldn't replace itself. Opens the download page.")
         }
     }
 
@@ -128,10 +120,44 @@ struct BottomBar: View {
         case .small: return 9
         case .medium: return 11
         case .large: return 13
+        case .extraLarge: return 15
         }
     }
 
     private var wordsLabel: String {
         wordCount == 1 ? "1 word" : "\(wordCount) words"
+    }
+}
+
+/// Chrome controls sit at tertiary until hovered, then lift a step, so
+/// they read as quiet text until the pointer shows they're buttons.
+struct QuietButton<Content: View>: View {
+    let action: () -> Void
+    let help: String
+    @ViewBuilder let content: () -> Content
+
+    @State private var hovering = false
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        Button(action: action) {
+            content().contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(style)
+        .onHover { inside in
+            withAnimation(.easeOut(duration: 0.12)) { hovering = inside }
+        }
+        .pointerCursor()
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var style: AnyShapeStyle {
+        switch (hovering, contrast == .increased) {
+        case (false, false): return AnyShapeStyle(.tertiary)
+        case (true, false), (false, true): return AnyShapeStyle(.secondary)
+        case (true, true): return AnyShapeStyle(.primary)
+        }
     }
 }

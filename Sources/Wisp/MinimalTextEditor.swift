@@ -31,8 +31,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
 
         let font = Self.makeFont(face: fontFace, size: fontSize.pointSize)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = 1.45
+        let paragraph = MarkdownStyler.bodyParagraph()
 
         // Click a `[ ]` to tick it off. A gesture recogniser rather than
         // an NSTextView subclass: gestureRecognizerShouldBegin only
@@ -59,7 +58,10 @@ struct MinimalTextEditor: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
+        textView.setAccessibilityLabel("Scratchpad")
         textView.string = text
+        textView.textStorage?.delegate = context.coordinator
+        context.coordinator.observeWidth(of: scrollView, textView: textView)
 
         Self.applyPalette(
             to: textView, face: fontFace, size: fontSize,
@@ -70,13 +72,20 @@ struct MinimalTextEditor: NSViewRepresentable {
         context.coordinator.lastFontFace = fontFace
         context.coordinator.lastTheme = theme
         context.coordinator.lastTransparency = transparency
+        context.coordinator.updateColumn(textView: textView, in: scrollView)
         return scrollView
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        coordinator.stopObservingWidth()
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         if textView.string != text {
             textView.string = text
+            context.coordinator.pendingEdit = nil
+            context.coordinator.lastHighlight = nil
             // Assigning .string drops every attribute. Without a
             // restyle here a note reloaded from disk (iCloud, folder
             // switch) shows literal `---` and flat headings until the
@@ -91,6 +100,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         if context.coordinator.lastFontSize != fontSize {
             context.coordinator.lastFontSize = fontSize
             applyFont(to: textView)
+            context.coordinator.updateColumn(textView: textView, in: scrollView)
         }
         if context.coordinator.lastFontFace != fontFace {
             context.coordinator.lastFontFace = fontFace
@@ -128,138 +138,41 @@ struct MinimalTextEditor: NSViewRepresentable {
             let range = findHighlightRange
             let color = Palette.for(theme).findHighlight
             if let storage = textView.textStorage {
-                let full = NSRange(location: 0, length: storage.length)
                 // Use a real storage background attribute (not a temporary
                 // layout attribute): storage mutations always trigger a
                 // redraw, so the highlight clears deterministically.
-                // A full restyle rather than a bare removeAttribute:
-                // code spans use .backgroundColor too, and clearing the
-                // whole document would strip them until the next
-                // keystroke.
-                Self.restyle(
-                    storage, face: fontFace, size: fontSize,
-                    theme: theme, transparency: transparency
-                )
-                if range.length > 0, NSMaxRange(range) <= full.length {
+                // Restyling the old match rather than a bare
+                // removeAttribute: code spans use .backgroundColor too.
+                if let previous = context.coordinator.lastHighlight {
+                    Self.restyle(
+                        storage, face: fontFace, size: fontSize,
+                        theme: theme, transparency: transparency, edited: previous
+                    )
+                }
+                context.coordinator.lastHighlight = nil
+                if range.length > 0, NSMaxRange(range) <= storage.length {
                     storage.addAttribute(.backgroundColor, value: color, range: range)
+                    context.coordinator.lastHighlight = range
                     textView.scrollRangeToVisible(range)
                 }
             }
         }
     }
 
-    /// Reset font and colour across the storage, then re-apply heading,
-    /// bold/italic and horizontal-rule styling. Resetting first is what
-    /// gives a line that *stopped* being an HR its visible text colour
-    /// back. Cheap at scratchpad sizes.
+    /// Restyle the whole storage, or with `edited` just the paragraphs
+    /// an edit touched. See MarkdownStyler.
     static func restyle(
         _ storage: NSTextStorage,
         face: FontFace,
         size: FontSize,
         theme: Theme,
-        transparency: Transparency
+        transparency: Transparency,
+        edited: NSRange? = nil
     ) {
-        let baseFont = makeFont(face: face, size: size.pointSize)
-        let palette = Palette.for(theme)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = 1.45
-        let total = NSRange(location: 0, length: storage.length)
-        storage.addAttribute(.font, value: baseFont, range: total)
-        storage.addAttribute(.foregroundColor, value: palette.text, range: total)
-        storage.addAttribute(.paragraphStyle, value: paragraph, range: total)
-        // Every attribute the passes below can add has to be cleared
-        // here, or it outlives the text that justified it — a reopened
-        // checkbox would stay struck through, a deleted fence would
-        // keep its panel.
-        storage.removeAttribute(.backgroundColor, range: total)
-        storage.removeAttribute(.wispCodeBlock, range: total)
-        storage.removeAttribute(.strikethroughStyle, range: total)
-        storage.removeAttribute(.strikethroughColor, range: total)
-        styleHorizontalRules(in: storage)
-        styleHeadings(in: storage, baseFont: baseFont)
-        styleBoldItalic(in: storage, baseFont: baseFont)
-        // Code goes last so it wins: markdown inside a fence is code,
-        // not formatting, and stays flat.
-        styleCode(
-            in: storage, baseFont: baseFont,
-            background: Palette.codeBackground(for: theme, transparency: transparency)
+        MarkdownStyler.restyle(
+            storage, face: face, size: size, theme: theme,
+            transparency: transparency, edited: edited
         )
-        styleCheckedItems(in: storage, palette: palette)
-    }
-
-    /// Ticked task items read as done: the whole line dims and the text
-    /// after the box is struck through. The file still says `- [x]`.
-    private static func styleCheckedItems(in storage: NSTextStorage, palette: Palette) {
-        let ns = storage.string as NSString
-        let done = palette.text.withAlphaComponent(0.4)
-        forEachLine(in: ns) { lineRange in
-            var content = lineRange
-            if content.length > 0,
-               ns.character(at: NSMaxRange(content) - 1) == 0x0A {
-                content.length -= 1
-            }
-            guard content.length > 0 else { return }
-            let line = ns.substring(with: content)
-            guard Checkbox.isChecked(line), let box = Checkbox.boxRange(in: line) else { return }
-            storage.addAttribute(.foregroundColor, value: done, range: content)
-            let textStart = content.location + NSMaxRange(box)
-            let textLength = NSMaxRange(content) - textStart
-            guard textLength > 0 else { return }
-            storage.addAttributes([
-                .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                .strikethroughColor: done,
-            ], range: NSRange(location: textStart, length: textLength))
-        }
-    }
-
-    /// Inline `code` spans and ``` fenced blocks in the system
-    /// monospace face. Backticks stay visible — same deal as bold.
-    private static func styleCode(
-        in storage: NSTextStorage, baseFont: NSFont, background: NSColor
-    ) {
-        let ns = storage.string as NSString
-        let mono = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.92, weight: .regular)
-        var fenceStart: Int? = nil
-        var blocks: [NSRange] = []
-        forEachLine(in: ns) { lineRange in
-            let line = ns.substring(with: lineRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard line.hasPrefix("```") else { return }
-            if let start = fenceStart {
-                blocks.append(NSRange(location: start, length: NSMaxRange(lineRange) - start))
-                fenceStart = nil
-            } else {
-                fenceStart = lineRange.location
-            }
-        }
-        // An unclosed fence runs to the end of the document, so a block
-        // looks like code while you're still typing it.
-        if let start = fenceStart, start < ns.length {
-            blocks.append(NSRange(location: start, length: ns.length - start))
-        }
-        for block in blocks {
-            // The ground here is drawn by HorizontalRuleLayoutManager
-            // from .wispCodeBlock, full width; an attribute background
-            // would stop at each line's last glyph.
-            storage.addAttributes([.font: mono, .wispCodeBlock: true], range: block)
-        }
-        for match in storage.string.matches(of: /`([^`\n]+)`/) {
-            let range = NSRange(match.range, in: storage.string)
-            guard range.location < storage.length,
-                  storage.attribute(.wispCodeBlock, at: range.location, effectiveRange: nil) == nil
-            else { continue }
-            storage.addAttributes([.font: mono, .backgroundColor: background], range: range)
-        }
-    }
-
-    /// Walk the storage line by line. Every styling pass wants this and
-    /// they were each rolling their own.
-    private static func forEachLine(in ns: NSString, _ body: (NSRange) -> Void) {
-        var lineStart = 0
-        while lineStart < ns.length {
-            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
-            body(lineRange)
-            lineStart = NSMaxRange(lineRange)
-        }
     }
 
     private func applyFont(to textView: NSTextView) {
@@ -285,8 +198,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     ) {
         let palette = Palette.for(theme)
         let font = makeFont(face: face, size: size.pointSize)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = 1.45
+        let paragraph = MarkdownStyler.bodyParagraph()
         textView.textColor = palette.text
         textView.insertionPointColor = palette.cursor
         textView.selectedTextAttributes = [
@@ -306,118 +218,8 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
     }
 
-    /// Apply bold + scaled font to lines that begin with a markdown heading
-    /// marker (`#` through `######`). Plain text on disk; this is just a
-    /// per-range font attribute so the heading reads as a section title
-    /// without leaving plain-text mode.
-    private static func styleHeadings(in storage: NSTextStorage, baseFont: NSFont) {
-        let ns = storage.string as NSString
-        let total = ns.length
-        var lineStart = 0
-        while lineStart < total {
-            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
-            let raw = ns.substring(with: lineRange)
-            let line = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
-            if let match = line.firstMatch(of: /^(#{1,6})\s+(\S.*)/) {
-                _ = match.2
-                let level = match.1.count
-                let font = headingFont(level: level, baseFont: baseFont)
-                var styleRange = lineRange
-                if styleRange.length > 0,
-                   ns.character(at: styleRange.location + styleRange.length - 1) == 0x0A {
-                    styleRange.length -= 1
-                }
-                storage.addAttribute(.font, value: font, range: styleRange)
-            }
-            lineStart = lineRange.location + lineRange.length
-        }
-    }
-
-    private static func headingFont(level: Int, baseFont: NSFont) -> NSFont {
-        let baseSize = baseFont.pointSize
-        let scaledSize: CGFloat
-        switch level {
-        case 1: scaledSize = baseSize * 1.20
-        case 2: scaledSize = baseSize * 1.10
-        default: scaledSize = baseSize
-        }
-        let boldDescriptor = baseFont.fontDescriptor.withSymbolicTraits(.bold)
-        return NSFont(descriptor: boldDescriptor, size: scaledSize) ?? baseFont
-    }
-
-    /// Render `**bold**` and `*italic*` markdown runs with bold / italic
-    /// font traits added to whatever font is currently at that range.
-    /// Stays plain on disk; the asterisks remain visible to the user.
-    private static func styleBoldItalic(in storage: NSTextStorage, baseFont: NSFont) {
-        let text = storage.string
-        for match in text.matches(of: /\*\*([^*\n]+)\*\*/) {
-            let nsRange = NSRange(match.range, in: text)
-            let current = currentFont(in: storage, at: nsRange.location, fallback: baseFont)
-            storage.addAttribute(.font, value: traitFont(current, traits: .bold), range: nsRange)
-        }
-        // Italic: *content*, skipping matches that touch another `*` on
-        // either side (which would mean the match is part of a **bold**).
-        // Swift Regex literals don't support lookbehind, so we filter
-        // post-match instead.
-        for match in text.matches(of: /\*([^*\n]+)\*/) {
-            let r = match.range
-            if r.lowerBound > text.startIndex,
-               text[text.index(before: r.lowerBound)] == "*" {
-                continue
-            }
-            if r.upperBound < text.endIndex, text[r.upperBound] == "*" {
-                continue
-            }
-            let nsRange = NSRange(r, in: text)
-            let current = currentFont(in: storage, at: nsRange.location, fallback: baseFont)
-            storage.addAttribute(.font, value: traitFont(current, traits: .italic), range: nsRange)
-        }
-    }
-
-    private static func currentFont(in storage: NSTextStorage, at location: Int, fallback: NSFont) -> NSFont {
-        guard location < storage.length else { return fallback }
-        return (storage.attributes(at: location, effectiveRange: nil)[.font] as? NSFont) ?? fallback
-    }
-
-    private static func traitFont(_ base: NSFont, traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
-        let merged = base.fontDescriptor.symbolicTraits.union(traits)
-        let descriptor = base.fontDescriptor.withSymbolicTraits(merged)
-        return NSFont(descriptor: descriptor, size: base.pointSize) ?? base
-    }
-
-    /// Walks the storage line-by-line; for any line whose entire
-    /// content is HR markers (the new `---` form, or the legacy
-    /// `─` x N form from pre-0.1.38 files), set the foreground to
-    /// `.clear` so the characters are invisible. The full-width
-    /// rule is then drawn by `HorizontalRuleLayoutManager`.
-    private static func styleHorizontalRules(in storage: NSTextStorage) {
-        let ns = storage.string as NSString
-        let total = ns.length
-        var lineStart = 0
-        while lineStart < total {
-            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
-            if HorizontalRuleLayoutManager.isHorizontalRuleLine(
-                lineRange: lineRange, in: ns
-            ) {
-                var contentRange = lineRange
-                if contentRange.length > 0,
-                   ns.character(at: contentRange.location + contentRange.length - 1) == 0x0A {
-                    contentRange.length -= 1
-                }
-                if contentRange.length > 0 {
-                    storage.addAttribute(
-                        .foregroundColor,
-                        value: NSColor.clear,
-                        range: contentRange
-                    )
-                }
-            }
-            lineStart = lineRange.location + lineRange.length
-        }
-    }
-
-    private static func makeFont(face: FontFace, size: CGFloat) -> NSFont {
-        if let font = NSFont(name: face.familyName, size: size) {
+    static func makeFont(face: FontFace, size: CGFloat) -> NSFont {
+        if let font = face.font(size: size) {
             return font
         }
         // Selected face is missing for some reason — fall through to a
@@ -437,7 +239,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate, NSGestureRecognizerDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate, NSGestureRecognizerDelegate {
         var text: Binding<String>
         var lastFocusToken: Int = 0
         var lastScrollToken: Int = 0
@@ -446,9 +248,75 @@ struct MinimalTextEditor: NSViewRepresentable {
         var lastFontFace: FontFace = .charter
         var lastTheme: Theme = .dark
         var lastTransparency: Transparency = .subtle
+        /// Characters changed since the last restyle, in current
+        /// coordinates. Collected from the storage so every path that
+        /// edits text — typing, paste, undo, list continuation — is
+        /// covered without each one reporting in.
+        var pendingEdit: NSRange?
+        /// The find match currently painted, so the next step only has
+        /// to restyle that one range instead of the whole note.
+        var lastHighlight: NSRange?
+        private var widthObserver: NSObjectProtocol?
 
         init(text: Binding<String>) {
             self.text = text
+        }
+
+        nonisolated func textStorage(
+            _ textStorage: NSTextStorage,
+            didProcessEditing editedMask: NSTextStorageEditActions,
+            range editedRange: NSRange,
+            changeInLength delta: Int
+        ) {
+            guard editedMask.contains(.editedCharacters) else { return }
+            MainActor.assumeIsolated {
+                pendingEdit = Self.merge(pendingEdit, editedRange, delta: delta)
+            }
+        }
+
+        /// Union of an earlier pending range with a new edit. The earlier
+        /// range's end moves with the edit when the edit lands at or
+        /// before it; covering a little too much is harmless, too
+        /// little is a stale style.
+        nonisolated static func merge(_ earlier: NSRange?, _ edit: NSRange, delta: Int) -> NSRange {
+            guard let earlier else { return edit }
+            let start = min(earlier.location, edit.location)
+            let earlierEnd = NSMaxRange(earlier) + (edit.location <= NSMaxRange(earlier) ? delta : 0)
+            let end = max(earlierEnd, NSMaxRange(edit))
+            return NSRange(location: start, length: max(0, end - start))
+        }
+
+        // MARK: Column width
+
+        /// Past a comfortable measure, extra panel width becomes margin
+        /// rather than longer lines. About 34 ems — 680pt at the default
+        /// size — keeps lines near 70 characters.
+        func updateColumn(textView: NSTextView, in scrollView: NSScrollView) {
+            let width = scrollView.contentView.bounds.width
+            let measure = lastFontSize.pointSize * 34
+            let inset = max(0, ((width - measure) / 2).rounded(.down))
+            if textView.textContainerInset.width != inset {
+                textView.textContainerInset = NSSize(width: inset, height: 0)
+            }
+        }
+
+        func observeWidth(of scrollView: NSScrollView, textView: NSTextView) {
+            scrollView.contentView.postsFrameChangedNotifications = true
+            widthObserver = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self, weak scrollView, weak textView] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let scrollView, let textView else { return }
+                    self.updateColumn(textView: textView, in: scrollView)
+                }
+            }
+        }
+
+        func stopObservingWidth() {
+            if let widthObserver { NotificationCenter.default.removeObserver(widthObserver) }
+            widthObserver = nil
         }
 
         func textDidChange(_ notification: Notification) {
@@ -460,35 +328,65 @@ struct MinimalTextEditor: NSViewRepresentable {
             // so bail out rather than styling the same text twice.
             if EmojiReplace.replaceIfMatched(in: textView) { return }
 
-            if let storage = textView.textStorage {
-                MinimalTextEditor.restyle(
-                    storage, face: lastFontFace, size: lastFontSize,
-                    theme: lastTheme, transparency: lastTransparency
-                )
-            }
+            // Mid-composition (Japanese, Chinese, dead keys) the marked
+            // text carries the input method's own underline; restyling
+            // would strip it. The edit stays pending until it's committed.
+            guard !textView.hasMarkedText(), let edited = pendingEdit,
+                  let storage = textView.textStorage else { return }
+            pendingEdit = nil
+            // Typing clears a find highlight, as it always has. The edit
+            // may have moved it, so the stored range can't be trusted;
+            // one full pass takes it wherever it went.
+            let clearsHighlight = lastHighlight != nil
+            lastHighlight = nil
+            MinimalTextEditor.restyle(
+                storage, face: lastFontFace, size: lastFontSize,
+                theme: lastTheme, transparency: lastTransparency,
+                edited: clearsHighlight ? nil : edited
+            )
         }
 
         // MARK: Checkbox clicks
 
-        /// Only claim the click when it lands on a `[ ]`; every other
-        /// click falls through to the text view untouched.
+        /// Only claim the click when it lands on a `[ ]`, or is a ⌘-click
+        /// on a link; every other click falls through to the text view
+        /// untouched.
         func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool {
             guard let click = recognizer as? NSClickGestureRecognizer,
                   let textView = recognizer.view as? NSTextView else { return false }
-            return Self.checkboxRange(in: textView, at: click.location(in: textView)) != nil
+            let point = click.location(in: textView)
+            if NSEvent.modifierFlags.contains(.command) {
+                return Self.link(in: textView, at: point) != nil
+            }
+            return Self.checkboxRange(in: textView, at: point) != nil
         }
 
         @objc func handleCheckboxClick(_ recognizer: NSClickGestureRecognizer) {
-            guard let textView = recognizer.view as? NSTextView,
-                  let box = Self.checkboxRange(in: textView, at: recognizer.location(in: textView))
-            else { return }
+            guard let textView = recognizer.view as? NSTextView else { return }
+            let point = recognizer.location(in: textView)
+            if NSEvent.modifierFlags.contains(.command) {
+                if let url = Self.link(in: textView, at: point) {
+                    NSWorkspace.shared.open(url)
+                }
+                return
+            }
+            guard let box = Self.checkboxRange(in: textView, at: point) else { return }
             let state = NSRange(location: box.location + 1, length: 1)
             let current = (textView.string as NSString).substring(with: state)
             replace(in: textView, range: state, with: current == " " ? "x" : " ")
         }
 
-        /// The `[ ]` marker under `point`, in document coordinates.
-        private static func checkboxRange(in textView: NSTextView, at point: NSPoint) -> NSRange? {
+        /// The link under `point`, if any.
+        private static func link(in textView: NSTextView, at point: NSPoint) -> URL? {
+            guard let index = characterIndex(in: textView, at: point),
+                  let storage = textView.textStorage else { return nil }
+            return storage.attribute(.wispLink, at: index, effectiveRange: nil) as? URL
+        }
+
+        /// The character whose glyph is actually under `point` — not
+        /// merely the nearest one, which is what glyphIndex returns for
+        /// a click past the end of a line.
+        private static func characterIndex(in textView: NSTextView, at point: NSPoint) -> Int? {
             guard let layoutManager = textView.layoutManager,
                   let container = textView.textContainer,
                   layoutManager.numberOfGlyphs > 0 else { return nil }
@@ -498,17 +396,18 @@ struct MinimalTextEditor: NSViewRepresentable {
             let glyph = layoutManager.glyphIndex(
                 for: local, in: container, fractionOfDistanceThroughGlyph: &fraction
             )
-            // glyphIndex clamps to the nearest glyph, so a click past
-            // the end of a line would "hit" its last character. Require
-            // the point to actually be inside the glyph.
             let bounds = layoutManager.boundingRect(
                 forGlyphRange: NSRange(location: glyph, length: 1), in: container
             )
             guard bounds.contains(local) else { return nil }
-
             let index = layoutManager.characterIndexForGlyph(at: glyph)
+            return index < (textView.string as NSString).length ? index : nil
+        }
+
+        /// The `[ ]` marker under `point`, in document coordinates.
+        private static func checkboxRange(in textView: NSTextView, at point: NSPoint) -> NSRange? {
+            guard let index = characterIndex(in: textView, at: point) else { return nil }
             let ns = textView.string as NSString
-            guard index < ns.length else { return nil }
             let lineRange = ns.lineRange(for: NSRange(location: index, length: 0))
             let line = ns.substring(with: lineRange)
             guard let box = Checkbox.boxRange(in: line) else { return nil }

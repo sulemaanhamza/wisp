@@ -29,6 +29,16 @@ enum Tips {
     static let seenKey = "SeenTipsVersion"
 
     static let all: [Tip] = [
+        Tip(version: "0.1.44", keys: "⌘L",
+            what: "make a line a task, or tick it off"),
+        Tip(version: "0.1.44", keys: "⌥↑  /  ⌥↓",
+            what: "move the line up or down"),
+        Tip(version: "0.1.44", keys: "⌘-click",
+            what: "open a link"),
+        Tip(version: "0.1.44", keys: "⌘-  /  ⌘=",
+            what: "text size, now with a fourth, larger step"),
+        Tip(version: "0.1.44", keys: "Font",
+            what: "right-click the menu bar icon — San Francisco and Verdana"),
         Tip(version: "0.1.42", keys: "- [ ]",
             what: "checklist — click a box to tick it off"),
         Tip(version: "0.1.42", keys: "⇧⌘↩",

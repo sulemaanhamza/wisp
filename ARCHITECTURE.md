@@ -26,11 +26,12 @@ dependencies, no Xcode project.
 | `PanelController.swift` | The panel and its layers: outer → inner (rounded clip) → `NSVisualEffectView` → tint → `NSHostingView`. Every dismissal goes through `dismiss()`. |
 | `FloatingPanel.swift` | `NSPanel` subclass that can take focus while borderless, and hands Esc back to the controller. |
 | `EditorView.swift` | `EditorModel` (the app's state and the only code that writes the scratchpad) plus the SwiftUI root. |
-| `MinimalTextEditor.swift` | `NSViewRepresentable` around `NSTextView`. All the styling passes live here. |
+| `MinimalTextEditor.swift` | `NSViewRepresentable` around `NSTextView`: edit tracking, checkbox and link clicks, the text column. |
+| `MarkdownStyler.swift` | Every styling pass — headings, emphasis, code, rules, tasks, links — for the whole note or just the edited paragraphs. |
 | `HorizontalRuleLayoutManager.swift` | Draws `---` lines as a full-width rule that tracks the panel's width. |
 | `Snapshots.swift` | Local version history. |
 | `StorageLocation.swift` | Where `scratchpad.md` lives, and moving it. |
-| `Inbox.swift`, `Checkbox.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
+| `Inbox.swift`, `Checkbox.swift`, `LineEditing.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
 | `Updater.swift` | GitHub Releases → background download → bundle swap on next launch. |
 | `SelfTests.swift` | The suite. |
 
@@ -47,6 +48,15 @@ the raw markdown. The characters stay visible and the file stays
 portable. `MinimalTextEditor.restyle` is the single entry point; call it
 after any programmatic change to the text, because assigning
 `textView.string` drops every attribute.
+
+**Restyle only what an edit touched.** Typing restyles the paragraphs an
+edit covered (collected from the text storage, so paste, undo and list
+continuation are all included), not the whole note. That's safe because
+every style is line-local except fenced code blocks; the fences are
+re-listed each time and any change in which lines sit inside a block
+falls back to a full restyle. The self-tests hold the two paths to
+identical output, including 300 random edits. Anything new has to stay
+line-local, or teach `MarkdownStyler.blocksUnchanged` about itself.
 
 **Pure logic gets its own type.** If a rule can be written without
 AppKit, it should be, so the self-tests can pin it.

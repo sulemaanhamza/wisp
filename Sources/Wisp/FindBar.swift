@@ -42,15 +42,12 @@ struct FindBar: View {
                 .disabled(matchCount == 0)
             iconButton("xmark", help: "Close (Esc)", action: onClose)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            Capsule()
                 .fill(barFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(borderColor, lineWidth: 1)
-                )
+                .overlay(Capsule().strokeBorder(borderColor, lineWidth: 1))
                 .shadow(color: Color.black.opacity(0.18), radius: 14, y: 4)
         )
         .onAppear {
@@ -90,6 +87,7 @@ struct FindBar: View {
         .foregroundStyle(.secondary)
         .pointerCursor()
         .help(help)
+        .accessibilityLabel(help)
     }
 
     /// True while the search field itself owns the keyboard. The field
