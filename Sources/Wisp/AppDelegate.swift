@@ -137,10 +137,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func makeTextSmaller(_ sender: Any?) { model.makeTextSmaller() }
     @objc func resetTextSize(_ sender: Any?) { model.resetTextSize() }
 
-    /// ⌘L acts only on the note, not on the find field.
+    @objc func insertDate(_ sender: Any?) {
+        guard let textView = scratchpadTextView() else { return }
+        textView.insertText(LineEditing.dateStamp(), replacementRange: textView.selectedRange())
+    }
+
+    /// ⌘L and ⇧⌘D act only on the note, not on the find field.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
-        case #selector(toggleTask(_:)):
+        case #selector(toggleTask(_:)), #selector(insertDate(_:)):
             return scratchpadTextView() != nil
         default:
             return true

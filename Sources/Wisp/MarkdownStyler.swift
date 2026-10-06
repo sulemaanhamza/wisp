@@ -1,6 +1,10 @@
 import AppKit
 
 extension NSAttributedString.Key {
+    /// The answer to a line that ends in `=`, on the `=` and anything
+    /// after it. Drawn by HorizontalRuleLayoutManager; never in the file.
+    static let wispMathAnswer = NSAttributedString.Key("wispMathAnswer")
+
     /// The URL a run of text points at. Deliberately not `.link`:
     /// NSTextView follows `.link` on a plain click, which would make the
     /// text of a URL impossible to click into and edit. ⌘-click opens it.
@@ -130,6 +134,8 @@ enum MarkdownStyler {
                 continue
             }
 
+            styleAnswer(content, storage: storage, ns: ns)
+
             let first = ns.character(at: content.location)
             if first == 0x23,  // #
                let match = headingPattern.firstMatch(in: text, range: content) {
@@ -146,6 +152,20 @@ enum MarkdownStyler {
                 styleCheckedItem(content, storage: storage, ns: ns, style: style)
             }
         }
+    }
+
+    /// Only lines that end in `=` pay for a parse.
+    private static func styleAnswer(_ content: NSRange, storage: NSTextStorage, ns: NSString) {
+        var end = NSMaxRange(content)
+        while end > content.location, ns.character(at: end - 1) == 0x20 || ns.character(at: end - 1) == 0x09 {
+            end -= 1
+        }
+        guard end > content.location, ns.character(at: end - 1) == 0x3D,  // =
+              let answer = InlineMath.answer(forLine: ns.substring(with: content)) else { return }
+        storage.addAttribute(
+            .wispMathAnswer, value: answer,
+            range: NSRange(location: end - 1, length: NSMaxRange(content) - (end - 1))
+        )
     }
 
     /// A ticked item reads as done: the whole line dims and the text

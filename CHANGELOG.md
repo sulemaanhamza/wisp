@@ -2,6 +2,15 @@
 
 Notable changes to Wisp. Newest first.
 
+## Unreleased
+
+### Added
+
+- **Inline maths.** End a line with `=` and its answer appears after it, dimmed: `12 × 4.5 + 20 =` shows 74. The answer isn't written to your note; press Tab to type it in. Words that aren't numbers or units are skipped, so `Hotel: 4 nights × 120 =` works as written.
+- **Conversions.** Length, weight, temperature, time and data sizes: `5 km in mi =`, `72 f in c =`, `90 min in h =`, `3.5 GB in MB =`. Units carry through a sum, so `5 km + 300 m =` gives 5.3 km.
+- **Percentages.** `20% of 150 =`, and `150 + 15% =` for adding tax or a tip.
+- **⇧⌘D types today's date** as `2026-09-25`, the same form as Inbox file names.
+
 ## 0.1.44 — 2026-09-25
 
 ### Added

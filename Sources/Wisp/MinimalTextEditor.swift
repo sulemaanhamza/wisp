@@ -212,6 +212,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         if let lm = textView.layoutManager as? HorizontalRuleLayoutManager {
             lm.ruleColor = palette.divider
             lm.codeBlockColor = Palette.codeBackground(for: theme, transparency: transparency)
+            lm.answerColor = palette.text.withAlphaComponent(0.5)
         }
         if let storage = textView.textStorage {
             restyle(storage, face: face, size: size, theme: theme, transparency: transparency)
@@ -351,6 +352,26 @@ struct MinimalTextEditor: NSViewRepresentable {
                 theme: lastTheme, transparency: lastTransparency,
                 edited: clearsHighlight ? nil : edited
             )
+            redrawLines(around: edited, in: textView)
+        }
+
+        /// An inline-math answer is drawn past the end of its line's
+        /// text, outside what AppKit repaints for an edit — so an answer
+        /// that changed or went away could linger. Repaint the edited
+        /// lines edge to edge.
+        private func redrawLines(around edited: NSRange, in textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager else { return }
+            let ns = textView.string as NSString
+            let start = min(edited.location, ns.length)
+            let end = min(max(start, NSMaxRange(edited)), ns.length)
+            let paragraphs = ns.paragraphRange(for: NSRange(location: start, length: end - start))
+            let glyphs = layoutManager.glyphRange(forCharacterRange: paragraphs, actualCharacterRange: nil)
+            let originY = textView.textContainerOrigin.y
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, _, _ in
+                textView.setNeedsDisplay(NSRect(
+                    x: 0, y: rect.minY + originY, width: textView.bounds.width, height: rect.height
+                ))
+            }
         }
 
         // MARK: Checkbox clicks
@@ -433,6 +454,9 @@ struct MinimalTextEditor: NSViewRepresentable {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 return handleEnter(in: textView)
             }
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                return acceptAnswer(in: textView)
+            }
             return false
         }
 
@@ -480,6 +504,29 @@ struct MinimalTextEditor: NSViewRepresentable {
             let twoDashRange = NSRange(location: lineRange.location, length: 2)
             replaceWithHorizontalRule(in: textView, range: twoDashRange)
             return false  // suppress the typed "-"
+        }
+
+        /// Tab right after a line's `=` types its answer in. Anywhere
+        /// else Tab is Tab.
+        private func acceptAnswer(in textView: NSTextView) -> Bool {
+            guard let storage = textView.textStorage,
+                  let insertion = Self.answerInsertion(in: storage, selection: textView.selectedRange())
+            else { return false }
+            replace(in: textView, range: NSRange(location: insertion.location, length: 0), with: insertion.text)
+            return true
+        }
+
+        /// What Tab would type at `selection`: the answer, with a space
+        /// first if the line ends on a bare `=`. Pure for tests.
+        static func answerInsertion(in storage: NSTextStorage, selection: NSRange) -> (location: Int, text: String)? {
+            let ns = storage.string as NSString
+            let caret = selection.location
+            guard selection.length == 0, caret > 0, caret <= ns.length,
+                  caret == ns.length || [0x0A, 0x0D, 0x2028, 0x2029].contains(ns.character(at: caret)),
+                  let answer = storage.attribute(.wispMathAnswer, at: caret - 1, effectiveRange: nil) as? String
+            else { return nil }
+            let gap = ns.character(at: caret - 1) == 0x3D ? " " : ""
+            return (caret, gap + answer)
         }
 
         private func handleEnter(in textView: NSTextView) -> Bool {
