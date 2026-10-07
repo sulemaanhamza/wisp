@@ -154,18 +154,28 @@ enum MarkdownStyler {
         }
     }
 
-    /// Only lines that end in `=` pay for a parse.
+    /// Only lines that end in `=` pay for a parse. The answer sits on
+    /// the `=` and any spaces after it — never on a line break, which a
+    /// CRLF note leaves inside `content`.
     private static func styleAnswer(_ content: NSRange, storage: NSTextStorage, ns: NSString) {
-        var end = NSMaxRange(content)
+        var lineEnd = NSMaxRange(content)
+        while lineEnd > content.location, isBreak(ns.character(at: lineEnd - 1)) { lineEnd -= 1 }
+        var end = lineEnd
         while end > content.location, ns.character(at: end - 1) == 0x20 || ns.character(at: end - 1) == 0x09 {
             end -= 1
         }
         guard end > content.location, ns.character(at: end - 1) == 0x3D,  // =
-              let answer = InlineMath.answer(forLine: ns.substring(with: content)) else { return }
+              let answer = InlineMath.answer(
+                forLine: ns.substring(with: NSRange(location: content.location, length: lineEnd - content.location))
+              ) else { return }
         storage.addAttribute(
             .wispMathAnswer, value: answer,
-            range: NSRange(location: end - 1, length: NSMaxRange(content) - (end - 1))
+            range: NSRange(location: end - 1, length: lineEnd - (end - 1))
         )
+    }
+
+    private static func isBreak(_ c: unichar) -> Bool {
+        c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029
     }
 
     /// A ticked item reads as done: the whole line dims and the text

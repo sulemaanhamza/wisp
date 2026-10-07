@@ -19,9 +19,6 @@ final class HorizontalRuleLayoutManager: NSLayoutManager {
     /// `ruleColor`; nil paints nothing.
     var codeBlockColor: NSColor?
 
-    /// Colour of an inline-math answer drawn after its `=`.
-    var answerColor: NSColor = .tertiaryLabelColor
-
     /// Paint one panel per fenced block, spanning the line fragment's
     /// full width so it tracks the window like the rule above. An
     /// attribute-only `.backgroundColor` would stop at the end of each
@@ -55,7 +52,6 @@ final class HorizontalRuleLayoutManager: NSLayoutManager {
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
-        drawAnswers(forGlyphRange: glyphsToShow, at: origin)
 
         guard let textStorage = textStorage,
               let context = NSGraphicsContext.current?.cgContext else {
@@ -94,36 +90,6 @@ final class HorizontalRuleLayoutManager: NSLayoutManager {
                 }
             }
             lineStart = lineRange.location + lineRange.length
-        }
-    }
-
-    /// Draw each line's inline-math answer just after its `=`, in the
-    /// same font, dimmed. Drawn rather than stored, so the file holds
-    /// exactly what was typed; Tab turns it into real text.
-    private func drawAnswers(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        guard let storage = textStorage else { return }
-        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
-        storage.enumerateAttribute(.wispMathAnswer, in: charRange) { value, range, _ in
-            guard let answer = value as? String, range.length > 0 else { return }
-            // The last glyph of `= ` places the answer; a bare `=` gets
-            // a space's worth of gap, as if one had been typed.
-            let last = glyphIndexForCharacter(at: NSMaxRange(range) - 1)
-            guard last < numberOfGlyphs,
-                  let container = textContainer(forGlyphAt: last, effectiveRange: nil) else { return }
-            let glyphRect = boundingRect(forGlyphRange: NSRange(location: last, length: 1), in: container)
-            let fragment = lineFragmentRect(forGlyphAt: last, effectiveRange: nil)
-            let baseline = fragment.minY + location(forGlyphAt: last).y
-            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-                ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-            let gap = range.length == 1 ? " " : ""
-            let text = NSAttributedString(string: gap + answer, attributes: [
-                .font: font,
-                .foregroundColor: answerColor,
-            ])
-            text.draw(at: NSPoint(
-                x: origin.x + glyphRect.maxX,
-                y: origin.y + baseline - font.ascender
-            ))
         }
     }
 

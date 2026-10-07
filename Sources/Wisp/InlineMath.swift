@@ -24,10 +24,19 @@ enum InlineMath {
             starts.append(i)
         }
         for start in starts {
-            let candidate = ns.substring(from: start)
-            if let answer = evaluate(candidate) { return answer }
+            // Skipping a label ("Rent:") is fine; skipping a number isn't.
+            // "5 ft 10 in in cm" must never fall back to "10 in in cm" and
+            // show a confident, wrong 25.4 cm.
+            if start > 0, containsNumber(ns.substring(to: start)) { break }
+            if let answer = evaluate(ns.substring(from: start)) { return answer }
         }
         return nil
+    }
+
+    /// Whether `text` holds a number the maths would read, as opposed to
+    /// digits inside a word like `Q3`, `2nd` or `v2`.
+    static func containsNumber(_ text: String) -> Bool {
+        tokenize(text, lenient: true)?.contains { if case .number = $0 { return true } else { return false } } ?? false
     }
 
     private static let marker = try! NSRegularExpression(
@@ -39,7 +48,8 @@ enum InlineMath {
     /// `==`, `<=`, `!=` and `=>` are code, not a question.
     static func expressionText(_ line: String) -> String? {
         var text = line
-        while let last = text.unicodeScalars.last, CharacterSet.whitespaces.contains(last) {
+        // Newlines too: a note saved on Windows ends each line in CR.
+        while let last = text.unicodeScalars.last, CharacterSet.whitespacesAndNewlines.contains(last) {
             text.unicodeScalars.removeLast()
         }
         guard text.hasSuffix("=") else { return nil }
@@ -73,14 +83,25 @@ enum InlineMath {
         /// so `150 + 15%` can mean 172.5.
         case percent(Double)
         case quantity(Double, Dimension)
+        /// `$12`, `40 €`: an amount that keeps its symbol through the sum.
+        /// Never converted — `$5 + €5` has no answer.
+        case money(Double, Currency)
 
         var scalar: Double? {
             switch self {
             case .number(let n): return n
             case .percent(let p): return p / 100
-            case .quantity: return nil
+            case .quantity, .money: return nil
             }
         }
+    }
+
+    /// A currency symbol and where it was written, so the answer comes
+    /// back the way the user writes money: `$36`, `55€`, `55 €`.
+    struct Currency {
+        let symbol: Character
+        let suffix: Bool
+        let spaced: Bool
     }
 
     // MARK: Tokens
@@ -89,11 +110,21 @@ enum InlineMath {
         case number(Double)
         case symbol(Character)
         case word(String)
+        /// Any Unicode currency sign. `spaced` is whether whitespace came
+        /// before it, which only matters when it follows the number.
+        case currency(Character, spaced: Bool)
     }
 
     private static let keywords: Set<String> = ["in", "to", "as", "of", "x"]
 
-    static func tokenize(_ text: String) -> [Token]? {
+    /// `2k`, `1.5M` — only straight after a number, and only these
+    /// spellings: lowercase `m` is metres.
+    private static let multipliers: [String: Double] = ["k": 1_000, "K": 1_000, "M": 1_000_000]
+
+    /// With `lenient`, characters the maths doesn't use are skipped
+    /// instead of failing the whole text — for asking whether a label
+    /// holds a number, not for calculating.
+    static func tokenize(_ text: String, lenient: Bool = false) -> [Token]? {
         var tokens: [Token] = []
         let chars = Array(text)
         let n = chars.count
@@ -101,6 +132,16 @@ enum InlineMath {
         // "1,200" but not "1,2" or "1,2000": exactly three digits follow.
         func isThousandsComma(_ i: Int) -> Bool {
             chars[i] == "," && isDigit(i + 1) && isDigit(i + 2) && isDigit(i + 3) && !isDigit(i + 4)
+        }
+        func isLetter(_ i: Int) -> Bool { i < n && (chars[i].isLetter || chars[i] == "°") }
+        func readLetters() -> String {
+            var word = ""
+            while isLetter(i) { word.append(chars[i]); i += 1 }
+            return word
+        }
+        /// Skip the rest of a word that mixes letters and digits.
+        func skipWord() {
+            while i < n, chars[i].isLetter || chars[i].isNumber || chars[i] == "." { i += 1 }
         }
         var i = 0
         while i < n {
@@ -119,17 +160,39 @@ enum InlineMath {
                         break
                     }
                 }
-                guard let value = Double(digits) else { return nil }
+                guard var value = Double(digits) else { return nil }
+                // Letters glued to a number: a unit (5km), a multiplier
+                // (2k), the times sign (3x4) — or part of a word (2nd,
+                // 4th), in which case the whole thing is a label.
+                if isLetter(i) {
+                    let glued = readLetters()
+                    let lower = glued.lowercased()
+                    if let factor = multipliers[glued], !isDigit(i) {
+                        value *= factor
+                        tokens.append(.number(value))
+                    } else if Units.unit(named: lower) != nil || lower == "x" {
+                        tokens.append(.number(value))
+                        tokens.append(.word(lower))
+                    } else {
+                        skipWord()
+                    }
+                    continue
+                }
                 tokens.append(.number(value))
+            } else if c.isCurrencySymbol {
+                let spaced = i > 0 && (chars[i - 1] == " " || chars[i - 1] == "\t")
+                tokens.append(.currency(c, spaced: spaced))
+                i += 1
             } else if "+-*/^()%×÷−".contains(c) {
                 let normalised: Character = c == "×" ? "*" : c == "÷" ? "/" : c == "−" ? "-" : c
                 tokens.append(.symbol(normalised))
                 i += 1
-            } else if c.isLetter || c == "°" {
-                var word = ""
-                while i < n, chars[i].isLetter || chars[i] == "°" {
-                    word.append(chars[i])
-                    i += 1
+            } else if isLetter(i) {
+                let word = readLetters()
+                // Q3, MP3, v2: a code, not a number.
+                if isDigit(i) {
+                    skipWord()
+                    continue
                 }
                 // Words that mean something to the maths are kept; the
                 // rest are labels — "4 nights × 120", "3 apples + 2" —
@@ -138,6 +201,8 @@ enum InlineMath {
                 if keywords.contains(lower) || Units.unit(named: lower) != nil {
                     tokens.append(.word(lower))
                 }
+            } else if lenient {
+                i += 1
             } else {
                 return nil
             }
@@ -197,25 +262,19 @@ enum InlineMath {
         }
 
         private mutating func parseProduct() -> Value? {
-            guard var left = parsePower() else { return nil }
+            guard var left = parseUnary() else { return nil }
             while true {
                 let dividing: Bool
                 if take("*") || takeWord(["x"]) { dividing = false } else if take("/") { dividing = true } else { return left }
-                guard let right = parsePower() else { return nil }
+                guard let right = parseUnary() else { return nil }
                 didOperate = true
                 guard let combined = Self.multiply(left, right, dividing: dividing) else { return nil }
                 left = combined
             }
         }
 
-        private mutating func parsePower() -> Value? {
-            guard let base = parseUnary() else { return nil }
-            guard take("^") else { return base }
-            guard let exponent = parsePower(), let b = base.scalar, let e = exponent.scalar else { return nil }
-            didOperate = true
-            return .number(pow(b, e))
-        }
-
+        /// Unary minus binds looser than `^`, as in written maths:
+        /// -2^2 is -4. The exponent may carry its own sign: 2^-1.
         private mutating func parseUnary() -> Value? {
             if take("-") {
                 guard let value = parseUnary() else { return nil }
@@ -223,10 +282,19 @@ enum InlineMath {
                 case .number(let n): return .number(-n)
                 case .percent(let p): return .percent(-p)
                 case .quantity(let q, let u): return .quantity(-q, u)
+                case .money(let m, let c): return .money(-m, c)
                 }
             }
             if take("+") { return parseUnary() }
-            return parsePostfix()
+            return parsePower()
+        }
+
+        private mutating func parsePower() -> Value? {
+            guard let base = parsePostfix() else { return nil }
+            guard take("^") else { return base }
+            guard let exponent = parseUnary(), let b = base.scalar, let e = exponent.scalar else { return nil }
+            didOperate = true
+            return .number(pow(b, e))
         }
 
         /// A number or group, then an optional `%` (and `of …`) or unit.
@@ -235,7 +303,7 @@ enum InlineMath {
             if take("%") {
                 guard let p = primary.scalar else { return nil }
                 if takeWord(["of"]) {
-                    guard let whole = parsePower() else { return nil }
+                    guard let whole = parseUnary() else { return nil }
                     didOperate = true
                     return Self.multiply(.number(p / 100), whole, dividing: false)
                 }
@@ -243,12 +311,36 @@ enum InlineMath {
             }
             if case .number(let n) = primary, case .word(let name)? = peek, let unit = Units.unit(named: name) {
                 index += 1
-                return .quantity(n, unit)
+                // "5 ft 10 in", "1 h 30 min": a number and unit of the
+                // same kind straight after adds on, as it reads.
+                var total = n
+                while index + 1 < tokens.count,
+                      case .number(let more) = tokens[index],
+                      case .word(let nextName) = tokens[index + 1],
+                      let nextUnit = Units.unit(named: nextName),
+                      let converted = Units.convert(more, from: nextUnit, to: unit) {
+                    total += converted
+                    index += 2
+                    didOperate = true
+                }
+                return .quantity(total, unit)
+            }
+            // 40€, 40 €
+            if case .number(let n) = primary, case .currency(let symbol, let spaced)? = peek {
+                index += 1
+                return .money(n, Currency(symbol: symbol, suffix: true, spaced: spaced))
             }
             return primary
         }
 
         private mutating func parsePrimary() -> Value? {
+            // $12, € 40
+            if case .currency(let symbol, _)? = peek {
+                index += 1
+                guard case .number(let n)? = peek else { return nil }
+                index += 1
+                return .money(n, Currency(symbol: symbol, suffix: false, spaced: false))
+            }
             if case .number(let n)? = peek {
                 index += 1
                 return .number(n)
@@ -262,6 +354,19 @@ enum InlineMath {
 
         static func add(_ a: Value, _ b: Value, sign: Double) -> Value? {
             switch (a, b) {
+            case (.money(let x, let c), .money(let y, let d)):
+                return c.symbol == d.symbol ? .money(x + sign * y, c) : nil
+            // $14 + 18% is the bill with the tip on top.
+            case (.money(let x, let c), .percent(let p)):
+                return .money(x * (1 + sign * p / 100), c)
+            // A bare number beside money is more of the same money:
+            // "$40 + 15 tip".
+            case (.money(let x, let c), .number(let y)):
+                return .money(x + sign * y, c)
+            case (.number(let x), .money(let y, let c)):
+                return .money(x + sign * y, c)
+            case (.money, _), (_, .money):
+                return nil
             case (.quantity(let x, let u), .quantity(let y, let v)):
                 guard let y2 = Units.convert(y, from: v, to: u) else { return nil }
                 return .quantity(x + sign * y2, u)
@@ -272,6 +377,9 @@ enum InlineMath {
                 return .quantity(x * (1 + sign * p / 100), u)
             case (.percent(let p), .percent(let q)):
                 return .percent(p + sign * q)
+            // 15% + 150 has no reading worth guessing at.
+            case (.percent, .number), (.percent, .quantity):
+                return nil
             default:
                 guard let x = a.scalar, let y = b.scalar else { return nil }
                 return .number(x + sign * y)
@@ -280,6 +388,17 @@ enum InlineMath {
 
         static func multiply(_ a: Value, _ b: Value, dividing: Bool) -> Value? {
             switch (a, b) {
+            // $100 / $25 is a plain ratio; $ × $ means nothing.
+            case (.money(let x, let c), .money(let y, let d)):
+                guard dividing, c.symbol == d.symbol, y != 0 else { return nil }
+                return .number(x / y)
+            case (.money(let x, let c), _):
+                guard let y = b.scalar else { return nil }
+                if dividing { return y == 0 ? nil : .money(x / y, c) }
+                return .money(x * y, c)
+            case (_, .money(let y, let c)):
+                guard !dividing, let x = a.scalar else { return nil }
+                return .money(x * y, c)
             case (.quantity(let x, let u), _):
                 guard let y = b.scalar ?? Self.sameUnitRatio(b, u) else { return nil }
                 if case .quantity = b {
@@ -315,21 +434,67 @@ enum InlineMath {
         case .quantity(let q, let unit):
             let digits = abs(q) < 1 ? 4 : 2
             return formatNumber(q, maxFraction: digits).map { "\($0) \(Units.symbol(for: unit))" }
+        case .money(let m, let currency):
+            return formatMoney(m, currency)
         }
+    }
+
+    /// Whole amounts without decimals, anything else to the cent:
+    /// $36, $37.50 — never $37.5. The sign leads, as in -$3.
+    static func formatMoney(_ m: Double, _ currency: Currency) -> String? {
+        guard m.isFinite else { return nil }
+        let cents = (m * 100).rounded()
+        let whole = cents.truncatingRemainder(dividingBy: 100) == 0
+        let key = whole ? -10 : -12
+        let formatter = formatters[key] ?? {
+            let f = NumberFormatter()
+            f.locale = Locale(identifier: "en_US")
+            f.numberStyle = .decimal
+            f.usesGroupingSeparator = true
+            f.minimumFractionDigits = whole ? 0 : 2
+            f.maximumFractionDigits = whole ? 0 : 2
+            formatters[key] = f
+            return f
+        }()
+        guard let digits = formatter.string(from: NSNumber(value: abs(cents) / 100)) else { return nil }
+        let sign = cents < 0 ? "-" : ""
+        let symbol = String(currency.symbol)
+        return currency.suffix
+            ? sign + digits + (currency.spaced ? " " : "") + symbol
+            : sign + symbol + digits
     }
 
     static func formatNumber(_ n: Double, maxFraction: Int) -> String? {
         guard n.isFinite else { return nil }
-        let formatter = NumberFormatter()
-        // Always "1,234.5": the same notation the parser reads back.
-        formatter.locale = Locale(identifier: "en_US")
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = true
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = maxFraction
+        // Fixed decimals suit everyday sizes. Something too small for
+        // them would round to a flat "0", and something huge shows the
+        // float's noise, so both switch to significant digits.
+        let tiny = n != 0 && abs(n) < 0.5 * pow(10, -Double(maxFraction))
+        let huge = abs(n) >= 1e15
+        let key = tiny ? -1 : huge ? -2 : maxFraction
+        let formatter = formatters[key] ?? {
+            let f = NumberFormatter()
+            // Always "1,234.5": the same notation the parser reads back.
+            f.locale = Locale(identifier: "en_US")
+            f.numberStyle = .decimal
+            f.usesGroupingSeparator = true
+            if tiny || huge {
+                f.usesSignificantDigits = true
+                f.maximumSignificantDigits = tiny ? 4 : 15
+            } else {
+                f.minimumFractionDigits = 0
+                f.maximumFractionDigits = maxFraction
+            }
+            formatters[key] = f
+            return f
+        }()
         let text = formatter.string(from: NSNumber(value: n))
         return text == "-0" ? "0" : text
     }
+
+    /// NumberFormatter is slow to make and safe to reuse on one thread;
+    /// this enum is main-actor, so one per style is enough.
+    private static var formatters: [Int: NumberFormatter] = [:]
 
     private static func isSpace(_ c: unichar) -> Bool { c == 0x20 || c == 0x09 }
 }

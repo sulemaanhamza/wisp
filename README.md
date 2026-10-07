@@ -45,7 +45,7 @@ Rather not use Terminal? Open Wisp once and dismiss the warning, then go to **Sy
 - **Find** — ⌘F, with ↵ / ⇧↵ to step through matches
 - **Archive to Inbox** — ⇧⌘↩ files the note by timestamp and clears the pad
 - **Emoji shortcodes** — `:rocket:` `:fire:` `:heart:` `:check:` and more
-- **Inline maths** — end a line with `=`: `12 × 4.5 + 20 =`, `5 km in mi =`, `20% of 150 =`. The answer shows dimmed; Tab types it in
+- **Inline maths** — end a line with `=`: `12 × 4.5 + 20 =`, `5 km in mi =`, `20% of 150 =`, `$12 × 3 =`. The answer shows dimmed; Tab types it in
 - **Today's date** — ⇧⌘D
 - **Bold / Italic** — ⌘B / ⌘I
 - **Text size** — ⌘- / ⌘= / ⌘0

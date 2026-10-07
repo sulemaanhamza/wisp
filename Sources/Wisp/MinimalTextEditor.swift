@@ -212,8 +212,8 @@ struct MinimalTextEditor: NSViewRepresentable {
         if let lm = textView.layoutManager as? HorizontalRuleLayoutManager {
             lm.ruleColor = palette.divider
             lm.codeBlockColor = Palette.codeBackground(for: theme, transparency: transparency)
-            lm.answerColor = palette.text.withAlphaComponent(0.5)
         }
+        (textView as? CaretTextView)?.answerColor = palette.text.withAlphaComponent(0.5)
         if let storage = textView.textStorage {
             restyle(storage, face: face, size: size, theme: theme, transparency: transparency)
         }
@@ -517,14 +517,18 @@ struct MinimalTextEditor: NSViewRepresentable {
         }
 
         /// What Tab would type at `selection`: the answer, with a space
-        /// first if the line ends on a bare `=`. Pure for tests.
+        /// first if the caret is right after the `=`. The caret only has
+        /// to be past the `=` with nothing but spaces after it — a stray
+        /// trailing space shouldn't turn Tab back into Tab. Pure for tests.
         static func answerInsertion(in storage: NSTextStorage, selection: NSRange) -> (location: Int, text: String)? {
             let ns = storage.string as NSString
             let caret = selection.location
             guard selection.length == 0, caret > 0, caret <= ns.length,
-                  caret == ns.length || [0x0A, 0x0D, 0x2028, 0x2029].contains(ns.character(at: caret)),
                   let answer = storage.attribute(.wispMathAnswer, at: caret - 1, effectiveRange: nil) as? String
             else { return nil }
+            var i = caret
+            while i < ns.length, ns.character(at: i) == 0x20 || ns.character(at: i) == 0x09 { i += 1 }
+            guard i == ns.length || [0x0A, 0x0D, 0x2028, 0x2029].contains(ns.character(at: i)) else { return nil }
             let gap = ns.character(at: caret - 1) == 0x3D ? " " : ""
             return (caret, gap + answer)
         }

@@ -44,6 +44,7 @@ enum HelpContent {
                 Row(what: "Sums", how: ["12 × 3 + 4 ="], kind: .syntax),
                 Row(what: "Units", how: ["5 km in mi ="], kind: .syntax),
                 Row(what: "Percentages", how: ["20% of 150 ="], kind: .syntax),
+                Row(what: "Money, symbol kept", how: ["$12 × 3 ="], kind: .syntax),
                 Row(what: "Type the answer in", how: ["Tab"], kind: .keys),
             ]),
             Section(title: "Markdown", rows: [

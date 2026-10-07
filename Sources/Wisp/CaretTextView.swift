@@ -9,6 +9,56 @@ import AppKit
 /// beside it. Keeping the bottom edge — the line's descent — and
 /// trimming the top to the font's own ascent lines it up with the text.
 final class CaretTextView: NSTextView {
+    /// Colour of inline-math answers. Setting it repaints: answers
+    /// aren't text, so a restyle alone wouldn't redraw them.
+    var answerColor: NSColor = .tertiaryLabelColor {
+        didSet { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawAnswers(in: dirtyRect)
+    }
+
+    /// Each line's inline-math answer, just after its `=`, in the
+    /// line's own font, dimmed. Drawn, never stored: the file holds
+    /// exactly what was typed, and Tab turns an answer into real text.
+    ///
+    /// Done here rather than in the layout manager, which only draws
+    /// the glyphs inside the dirty rect. An answer sits past its line's
+    /// last glyph, so repainting just the answer's patch found no
+    /// glyphs and wiped it. Looking lines up across the full width
+    /// finds the line however small the patch.
+    private func drawAnswers(in dirtyRect: NSRect) {
+        guard let layoutManager, let container = textContainer,
+              let storage = textStorage, storage.length > 0 else { return }
+        let origin = textContainerOrigin
+        let band = NSRect(
+            x: 0, y: dirtyRect.minY - origin.y,
+            width: container.size.width, height: dirtyRect.height
+        )
+        let glyphs = layoutManager.glyphRange(forBoundingRect: band, in: container)
+        guard glyphs.length > 0 else { return }
+        let chars = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        storage.enumerateAttribute(.wispMathAnswer, in: chars) { value, range, _ in
+            guard let answer = value as? String, range.length > 0 else { return }
+            // The last glyph of `= ` places the answer; a bare `=` gets
+            // a space's worth of gap, as if one had been typed.
+            let last = layoutManager.glyphIndexForCharacter(at: NSMaxRange(range) - 1)
+            guard last < layoutManager.numberOfGlyphs else { return }
+            let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: last, length: 1), in: container)
+            let fragment = layoutManager.lineFragmentRect(forGlyphAt: last, effectiveRange: nil)
+            let baseline = fragment.minY + layoutManager.location(forGlyphAt: last).y
+            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+                ?? self.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            let text = NSAttributedString(string: (range.length == 1 ? " " : "") + answer, attributes: [
+                .font: font,
+                .foregroundColor: answerColor,
+            ])
+            text.draw(at: NSPoint(x: origin.x + glyphRect.maxX, y: origin.y + baseline - font.ascender))
+        }
+    }
+
     /// ⌥↑ / ⌥↓ move lines. Handled here, in the note's own text view,
     /// rather than as menu shortcuts: a menu takes the key before any
     /// text field sees it, which cost the find field its ⌥↑.

@@ -33,6 +33,7 @@ enum Tips {
         Tip(version: "0.1.45", keys: "12 × 3 + 4 ="),
         Tip(version: "0.1.45", keys: "5 km in mi ="),
         Tip(version: "0.1.45", keys: "20% of 150 ="),
+        Tip(version: "0.1.45", keys: "$12 × 3 ="),
         Tip(version: "0.1.45", keys: "⇧⌘D"),
         Tip(version: "0.1.44", keys: "⌘L"),
         Tip(version: "0.1.44", keys: "⌥↑ ⌥↓"),

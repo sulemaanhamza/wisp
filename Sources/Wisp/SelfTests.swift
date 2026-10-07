@@ -927,7 +927,48 @@ enum SelfTests {
             ("1,200 / 3 =", "400"),
             ("1,200,000 + 1 =", "1,200,001"),
             ("Rent: 1200 / 3 =", "400"),
-            ("split 1200 between 3 is 1200 / 3 =", "400"),
+            // Labels in front are skipped; numbers in front never are —
+            // an answer that quietly ignores some of the line is worse
+            // than none.
+            ("split 1200 between 3 is 1200 / 3 =", nil),
+            ("Q3 revenue: 1.2 + 3.4 =", "4.6"),
+            ("2nd payment 10 + 5 =", "15"),
+            ("5 ft 10 in in cm =", "177.8 cm"),
+            ("1 h 30 min in min =", "90 min"),
+            ("6 ft 2 in =", "6.17 ft"),
+            ("5km + 300m =", "5.3 km"),
+            ("1.5k + 2k =", "3,500"),
+            ("1.2M - 200k =", "1,000,000"),
+            ("3x4 =", "12"),
+            ("-2^2 =", "-4"),
+            ("2^-1 =", "0.5"),
+            ("2^3^2 =", "512"),
+            ("1 / 3000000 =", "0.0000003333"),
+            ("1 mm in km =", "0.000001 km"),
+            ("10^25 =", "10,000,000,000,000,000,000,000,000"),
+            ("15% + 150 =", nil),
+            // Money: the symbol carries through, nothing is converted.
+            ("$12 × 3 =", "$36"),
+            ("3 × $12 =", "$36"),
+            ("€40 + €15 =", "€55"),
+            ("40€ + 15€ =", "55€"),
+            ("40 € + 15 € =", "55 €"),
+            ("£12.50 x 2 =", "£25"),
+            ("$12.50 + 1 =", "$13.50"),
+            ("$10 / 3 =", "$3.33"),
+            ("Lunch $14 + tip 18% =", "$16.52"),
+            ("20% of $80 =", "$16"),
+            ("$1.5k x 2 =", "$3,000"),
+            ("¥1,000 × 3 =", "¥3,000"),
+            ("-$5 + $2 =", "-$3"),
+            ("$100 / $25 =", "4"),
+            ("$5 + €5 =", nil),
+            ("$5 × $5 =", nil),
+            ("$5 in km =", nil),
+            ("$5 + 3 km =", nil),
+            ("$5 =", nil),
+            ("2 + 2 =\r", "4"),
+            ("2 + 2 =\r\n", "4"),
             ("- [ ] 2 + 2 =", "4"),
             ("# 2 + 2 =", "4"),
             ("20% of 150 =", "30"),
@@ -986,6 +1027,20 @@ enum SelfTests {
               MinimalTextEditor.Coordinator.answerInsertion(in: mathStorage, selection: NSRange(location: 3, length: 0)) == nil)
         let spaced = NSTextStorage(string: "3 x 3 = ")
         MarkdownStyler.restyle(spaced, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        let crlf = NSTextStorage(string: "2 + 2 =\r\nnext\r\n")
+        MarkdownStyler.restyle(crlf, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        var answerRange = NSRange()
+        let crlfAnswer = crlf.attribute(.wispMathAnswer, at: 6, effectiveRange: &answerRange) as? String
+        check("math: a CRLF line gets its answer", crlfAnswer == "4")
+        check("math: …on the = alone, not the line break", answerRange == NSRange(location: 6, length: 1))
+        let trailing = NSTextStorage(string: "3 x 3 =  \nnext")
+        MarkdownStyler.restyle(trailing, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        check("math: Tab right after the = still works with spaces after the caret",
+              MinimalTextEditor.Coordinator.answerInsertion(in: trailing, selection: NSRange(location: 7, length: 0))?.text == " 9")
+        check("math: …but not with text after the caret",
+              MinimalTextEditor.Coordinator.answerInsertion(in: trailing, selection: NSRange(location: 3, length: 0)) == nil)
+        check("math: a number inside a label doesn't count as one",
+              !InlineMath.containsNumber("Q3 revenue, 2nd draft, v2:") && InlineMath.containsNumber("5 ft"))
         check("math: after a trailing space, just the answer",
               MinimalTextEditor.Coordinator.answerInsertion(in: spaced, selection: NSRange(location: 8, length: 0))?.text == "9")
 
