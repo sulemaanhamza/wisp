@@ -15,16 +15,21 @@ final class CaretTextView: NSTextView {
         didSet { needsDisplay = true }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        drawAnswers(in: dirtyRect)
+    // drawBackground, not draw(_:): it's NSTextView's hook for extra
+    // drawing and gets the same dirty rect. Overriding draw(_:) itself
+    // changed how AppKit treats the view — font substitution ran on a
+    // different schedule than on a stock text view — and nothing about
+    // answers needs that.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawAnswers(in: rect)
     }
 
     /// Each line's inline-math answer, just after its `=`, in the
     /// line's own font, dimmed. Drawn, never stored: the file holds
     /// exactly what was typed, and Tab turns an answer into real text.
     ///
-    /// Done here rather than in the layout manager, which only draws
+    /// Done in the view rather than the layout manager, which only draws
     /// the glyphs inside the dirty rect. An answer sits past its line's
     /// last glyph, so repainting just the answer's patch found no
     /// glyphs and wiped it. Looking lines up across the full width

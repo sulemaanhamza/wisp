@@ -2,7 +2,7 @@ import AppKit
 
 extension NSAttributedString.Key {
     /// The answer to a line that ends in `=`, on the `=` and anything
-    /// after it. Drawn by HorizontalRuleLayoutManager; never in the file.
+    /// after it. Drawn by CaretTextView; never in the file.
     static let wispMathAnswer = NSAttributedString.Key("wispMathAnswer")
 
     /// The URL a run of text points at. Deliberately not `.link`:
