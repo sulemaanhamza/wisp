@@ -38,6 +38,14 @@ enum HelpContent {
                 Row(what: "Move the line up or down", how: ["⌥↑", "⌥↓"], kind: .keys),
                 Row(what: "Open a link", how: ["⌘-click"], kind: .keys),
                 Row(what: "Text size", how: ["⌘-", "⌘=", "⌘0"], kind: .keys),
+                Row(what: "Insert today's date", how: ["⇧⌘D"], kind: .keys),
+            ]),
+            Section(title: "Calculate — end a line with =", rows: [
+                Row(what: "Sums", how: ["12 × 3 + 4 ="], kind: .syntax),
+                Row(what: "Units", how: ["5 km in mi ="], kind: .syntax),
+                Row(what: "Percentages", how: ["20% of 150 ="], kind: .syntax),
+                Row(what: "Money, symbol kept", how: ["$12 × 3 ="], kind: .syntax),
+                Row(what: "Type the answer in", how: ["Tab"], kind: .keys),
             ]),
             Section(title: "Markdown", rows: [
                 Row(what: "Heading, listed in the top bar", how: ["#", "##", "###"], kind: .syntax),
@@ -93,7 +101,7 @@ struct HelpOverlay: View {
                     // Two columns when there's room, one when there isn't.
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 40) {
-                            column(sections.prefix(2))
+                            column(sections.prefix(3))
                             column(sections.suffix(2))
                         }
                         column(sections[...])
@@ -125,7 +133,9 @@ struct HelpOverlay: View {
                 }
             }
         }
-        .frame(width: 320, alignment: .leading)
+        // 320 is what two columns are measured at; alone, a column
+        // takes the sheet's width so the keys line up with its edge.
+        .frame(minWidth: 280, idealWidth: 320, maxWidth: 420, alignment: .leading)
     }
 }
 
@@ -134,31 +144,47 @@ private struct HelpRowView: View {
     let isNew: Bool
 
     var body: some View {
+        if row.kind == .menu { menuRow } else { shortcutRow }
+    }
+
+    /// Menu items are named, not pressed, and their names are long: the
+    /// name leads and a line of explanation sits under it, so nothing
+    /// has to wrap.
+    private var menuRow: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(row.how.joined(separator: ", "))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                if isNew { newTag }
+            }
+            Text(row.what)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var newTag: some View {
+        Text("New")
+            .font(.system(size: 9, weight: .semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(Color.accentColor)
+    }
+
+    private var shortcutRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(row.what)
                     .font(.system(size: 13))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if isNew {
-                    Text("New")
-                        .font(.system(size: 9, weight: .semibold))
-                        .textCase(.uppercase)
-                        .foregroundStyle(Color.accentColor)
-                }
+                if isNew { newTag }
             }
             Spacer(minLength: 8)
             HStack(spacing: 4) {
                 ForEach(row.how, id: \.self) { item in
-                    switch row.kind {
-                    case .keys: Keycap(text: item)
-                    case .syntax: SyntaxChip(text: item)
-                    case .menu:
-                        Text(item)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    if row.kind == .keys { Keycap(text: item) } else { SyntaxChip(text: item) }
                 }
             }
             .fixedSize()

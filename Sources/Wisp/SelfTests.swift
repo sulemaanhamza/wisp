@@ -763,6 +763,8 @@ enum SelfTests {
             // Every other line break NSString knows: pasted text keeps
             // them, and a paragraph restyle must agree with a full one.
             "\r", "\r\n", "\u{2028}", "\u{2029}",
+            // Inline math is line-local too; hold it to the same rule.
+            "2 + 2 =", " =", "5 km in mi =",
         ]
         let fuzz = NSTextStorage(string: seed)
         MarkdownStyler.restyle(fuzz, face: .charter, size: .medium, theme: .light, transparency: .strong)
@@ -911,6 +913,145 @@ enum SelfTests {
         check("menu shortcut: F-keys fall back to the title",
               HotKey(keyCode: UInt32(kVK_F1), modifiers: UInt32(optionKey)).menuKeyEquivalent == nil)
 
+        // MARK: - Inline math
+
+        let sums: [(String, String?)] = [
+            ("12 × 4.5 + 20 =", "74"),
+            ("12 * 4.5 + 20=", "74"),
+            ("3 x 4 =", "12"),
+            ("(2 + 3) ^ 2 =", "25"),
+            ("-3 + 1 =", "-2"),
+            ("10 / 4 =", "2.5"),
+            ("1/3 =", "0.333333"),
+            ("0.1 + 0.2 =", "0.3"),
+            ("1,200 / 3 =", "400"),
+            ("1,200,000 + 1 =", "1,200,001"),
+            ("Rent: 1200 / 3 =", "400"),
+            // Labels in front are skipped; numbers in front never are —
+            // an answer that quietly ignores some of the line is worse
+            // than none.
+            ("split 1200 between 3 is 1200 / 3 =", nil),
+            ("Q3 revenue: 1.2 + 3.4 =", "4.6"),
+            ("2nd payment 10 + 5 =", "15"),
+            ("5 ft 10 in in cm =", "177.8 cm"),
+            ("1 h 30 min in min =", "90 min"),
+            ("6 ft 2 in =", "6.17 ft"),
+            ("5km + 300m =", "5.3 km"),
+            ("1.5k + 2k =", "3,500"),
+            ("1.2M - 200k =", "1,000,000"),
+            ("3x4 =", "12"),
+            ("-2^2 =", "-4"),
+            ("2^-1 =", "0.5"),
+            ("2^3^2 =", "512"),
+            ("1 / 3000000 =", "0.0000003333"),
+            ("1 mm in km =", "0.000001 km"),
+            ("10^25 =", "10,000,000,000,000,000,000,000,000"),
+            ("15% + 150 =", nil),
+            // Money: the symbol carries through, nothing is converted.
+            ("$12 × 3 =", "$36"),
+            ("3 × $12 =", "$36"),
+            ("€40 + €15 =", "€55"),
+            ("40€ + 15€ =", "55€"),
+            ("40 € + 15 € =", "55 €"),
+            ("£12.50 x 2 =", "£25"),
+            ("$12.50 + 1 =", "$13.50"),
+            ("$10 / 3 =", "$3.33"),
+            ("Lunch $14 + tip 18% =", "$16.52"),
+            ("20% of $80 =", "$16"),
+            ("$1.5k x 2 =", "$3,000"),
+            ("¥1,000 × 3 =", "¥3,000"),
+            ("-$5 + $2 =", "-$3"),
+            ("$100 / $25 =", "4"),
+            ("$5 + €5 =", nil),
+            ("$5 × $5 =", nil),
+            ("$5 in km =", nil),
+            ("$5 + 3 km =", nil),
+            ("$5 =", nil),
+            ("2 + 2 =\r", "4"),
+            ("2 + 2 =\r\n", "4"),
+            ("- [ ] 2 + 2 =", "4"),
+            ("# 2 + 2 =", "4"),
+            ("20% of 150 =", "30"),
+            ("150 + 15% =", "172.5"),
+            ("80 - 25% =", "60"),
+            ("5 km in mi =", "3.11 mi"),
+            ("180 cm in ft =", "5.91 ft"),
+            ("2.5 kg in lb =", "5.51 lb"),
+            ("5 in in cm =", "12.7 cm"),
+            ("10 cm to in =", "3.94 in"),
+            ("72 f in c =", "22.22 °C"),
+            ("-40 c in f =", "-40 °F"),
+            ("90 min in h =", "1.5 h"),
+            ("3.5 GB in MB =", "3,500 MB"),
+            ("2 d in h =", "48 h"),
+            ("5 km + 300 m =", "5.3 km"),
+            ("10 km / 2 =", "5 km"),
+            ("10 km / 2 km =", "5"),
+            ("500 m in mi =", "0.3107 mi"),
+            // Left alone: not a question, or not answerable.
+            ("42 =", nil),
+            ("5 km =", nil),
+            ("a = b", nil),
+            ("x == y", nil),
+            ("if a <= b", nil),
+            ("a != b =", nil),
+            ("1 / 0 =", nil),
+            ("5 km in kg =", nil),
+            ("2026-09-25 =", nil),
+            ("10:30 =", nil),
+            ("hello world =", nil),
+            ("Hotel: 4 nights × 120 =", "480"),
+            ("3 apples + 2 pears =", "5"),
+            ("not a sum =", nil),
+            ("12 × 4.5 + 20", nil),
+            ("=", nil),
+        ]
+        for (line, expected) in sums {
+            check("math: \"\(line)\" → \(expected ?? "nothing")", InlineMath.answer(forLine: line) == expected)
+        }
+
+        check("math: the answer grows with the sum, not stored",
+              InlineMath.answer(forLine: "2 + 2 =") == "4")
+        let mathStorage = NSTextStorage(string: "total 2 + 2 =\nno sum here\n```\n1 + 1 =\n```\n")
+        MarkdownStyler.restyle(mathStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        let mathNS = mathStorage.string as NSString
+        check("math: a sum line carries its answer on the =",
+              mathStorage.attribute(.wispMathAnswer, at: mathNS.range(of: "=").location, effectiveRange: nil) as? String == "4")
+        check("math: nothing inside a code block",
+              runs(.wispMathAnswer, in: mathStorage) == 1)
+        check("math: the file text is untouched", mathStorage.string.hasPrefix("total 2 + 2 =\n"))
+        let atEnd = MinimalTextEditor.Coordinator.answerInsertion(
+            in: mathStorage, selection: NSRange(location: mathNS.range(of: "=").location + 1, length: 0))
+        check("math: Tab after a bare = types a space and the answer", atEnd?.text == " 4")
+        check("math: Tab mid-line is just Tab",
+              MinimalTextEditor.Coordinator.answerInsertion(in: mathStorage, selection: NSRange(location: 3, length: 0)) == nil)
+        let spaced = NSTextStorage(string: "3 x 3 = ")
+        MarkdownStyler.restyle(spaced, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        let crlf = NSTextStorage(string: "2 + 2 =\r\nnext\r\n")
+        MarkdownStyler.restyle(crlf, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        var answerRange = NSRange()
+        let crlfAnswer = crlf.attribute(.wispMathAnswer, at: 6, effectiveRange: &answerRange) as? String
+        check("math: a CRLF line gets its answer", crlfAnswer == "4")
+        check("math: …on the = alone, not the line break", answerRange == NSRange(location: 6, length: 1))
+        let trailing = NSTextStorage(string: "3 x 3 =  \nnext")
+        MarkdownStyler.restyle(trailing, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        check("math: Tab right after the = still works with spaces after the caret",
+              MinimalTextEditor.Coordinator.answerInsertion(in: trailing, selection: NSRange(location: 7, length: 0))?.text == " 9")
+        check("math: …but not with text after the caret",
+              MinimalTextEditor.Coordinator.answerInsertion(in: trailing, selection: NSRange(location: 3, length: 0)) == nil)
+        check("math: a number inside a label doesn't count as one",
+              !InlineMath.containsNumber("Q3 revenue, 2nd draft, v2:") && InlineMath.containsNumber("5 ft"))
+        check("math: after a trailing space, just the answer",
+              MinimalTextEditor.Coordinator.answerInsertion(in: spaced, selection: NSRange(location: 8, length: 0))?.text == "9")
+
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let sept25 = utc.date(from: DateComponents(year: 2026, month: 9, day: 25, hour: 23, minute: 30))!
+        check("date: ISO, in the given time zone",
+              LineEditing.dateStamp(sept25, timeZone: TimeZone(identifier: "UTC")!) == "2026-09-25")
+        check("date: local midnight decides the day",
+              LineEditing.dateStamp(sept25, timeZone: TimeZone(identifier: "Asia/Karachi")!) == "2026-09-26")
+
         check("fences: indented and bare both count",
               MarkdownStyler.fenceLineStarts(in: "a\n  ```swift\nb\n```\n" as NSString) == [2, 15])
         check("fences: backticks mid-line don't",
@@ -945,7 +1086,7 @@ enum SelfTests {
         check("tips: a marker from the future shows nothing",
               Tips.unseen(since: "99.0.0").isEmpty)
         check("tips: an old marker shows the newest ones",
-              Tips.unseen(since: "0.1.42").allSatisfy { $0.version == "0.1.44" })
+              Tips.unseen(since: "0.1.44").allSatisfy { $0.version == "0.1.45" })
         check("tips: an old marker doesn't re-show what they've seen",
               !Tips.unseen(since: "0.1.41").contains { $0.version == "0.1.41" })
         check("tips: a very old marker shows the lot",

@@ -95,6 +95,14 @@ enum MainMenuBuilder {
         )
         taskItem.target = target
         formatMenu.addItem(taskItem)
+        let dateItem = NSMenuItem(
+            title: "Insert Today's Date",
+            action: #selector(AppDelegate.insertDate(_:)),
+            keyEquivalent: "d"
+        )
+        dateItem.keyEquivalentModifierMask = [.command, .shift]
+        dateItem.target = target
+        formatMenu.addItem(dateItem)
         formatMenuItem.submenu = formatMenu
         mainMenu.addItem(formatMenuItem)
 

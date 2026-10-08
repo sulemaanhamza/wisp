@@ -31,7 +31,7 @@ dependencies, no Xcode project.
 | `HorizontalRuleLayoutManager.swift` | Draws `---` lines as a full-width rule that tracks the panel's width. |
 | `Snapshots.swift` | Local version history. |
 | `StorageLocation.swift` | Where `scratchpad.md` lives, and moving it. |
-| `Inbox.swift`, `Checkbox.swift`, `LineEditing.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
+| `Inbox.swift`, `Checkbox.swift`, `LineEditing.swift`, `InlineMath.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
 | `Updater.swift` | GitHub Releases → background download → bundle swap on next launch. |
 | `SelfTests.swift` | The suite. |
 

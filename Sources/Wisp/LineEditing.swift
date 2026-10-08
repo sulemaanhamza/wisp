@@ -151,6 +151,16 @@ enum LineEditing {
         return i
     }
 
+    /// Today as ⇧⌘D types it: `2026-09-25`, the same form as Inbox file
+    /// names, so a log sorts the way it reads.
+    static func dateStamp(_ date: Date = Date(), timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
     /// Route an edit through the text view so it's undoable and every
     /// text-change observer hears about it.
     @MainActor
