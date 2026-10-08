@@ -45,28 +45,49 @@ final class CaretTextView: NSTextView {
         let glyphs = layoutManager.glyphRange(forBoundingRect: band, in: container)
         guard glyphs.length > 0 else { return }
         let chars = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        // An answer follows its `=` like typed text; a reminder's time
-        // stands a little apart from the sentence.
-        for (key, gap) in [(NSAttributedString.Key.wispMathAnswer, " "), (.wispReminder, "   ")] {
-            storage.enumerateAttribute(key, in: chars) { value, range, _ in
-                guard let trailing = value as? String, range.length > 0 else { return }
-                // The range's last glyph places the text. With nothing
-                // typed after the line's end, `gap` stands in for spaces.
-                let last = layoutManager.glyphIndexForCharacter(at: NSMaxRange(range) - 1)
-                guard last < layoutManager.numberOfGlyphs else { return }
-                let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: last, length: 1), in: container)
-                let fragment = layoutManager.lineFragmentRect(forGlyphAt: last, effectiveRange: nil)
-                let baseline = fragment.minY + layoutManager.location(forGlyphAt: last).y
-                let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-                    ?? self.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-                let lead = range.length == 1 ? gap : String(gap.dropFirst())
-                let text = NSAttributedString(string: lead + trailing, attributes: [
-                    .font: font,
-                    .foregroundColor: answerColor,
-                ])
-                text.draw(at: NSPoint(x: origin.x + glyphRect.maxX, y: origin.y + baseline - font.ascender))
-            }
+        let ns = storage.string as NSString
+        // An answer follows its `=` like typed text, in the line's font;
+        // a reminder's time stands a little apart, in the body font —
+        // the line's last character may be an emoji or a code span.
+        storage.enumerateAttribute(.wispMathAnswer, in: chars) { value, range, _ in
+            guard let answer = value as? String, range.length > 0 else { return }
+            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? bodyFont
+            drawTrailing([(range.length == 1 ? " " : "") + answer], after: range, font: font,
+                         layoutManager: layoutManager, container: container, origin: origin)
         }
+        storage.enumerateAttribute(.wispReminder, in: chars) { value, range, _ in
+            guard let label = value as? TrailingLabel, range.length > 0 else { return }
+            let last = ns.character(at: NSMaxRange(range) - 1)
+            let lead = last == 0x20 || last == 0x09 ? "  " : "   "
+            drawTrailing([lead + label.full, lead + label.short, " " + label.short], fitting: true, after: range,
+                         font: bodyFont, layoutManager: layoutManager, container: container, origin: origin)
+        }
+    }
+
+    private var bodyFont: NSFont { font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize) }
+
+    /// Text drawn just past the end of `range`, on its baseline. With
+    /// `fitting`, the first of `candidates` that fits before the visible
+    /// edge, or none — a time cut off by the panel's edge would read as
+    /// a different time.
+    private func drawTrailing(
+        _ candidates: [String], fitting: Bool = false, after range: NSRange, font: NSFont,
+        layoutManager: NSLayoutManager, container: NSTextContainer, origin: NSPoint
+    ) {
+        let last = layoutManager.glyphIndexForCharacter(at: NSMaxRange(range) - 1)
+        guard last < layoutManager.numberOfGlyphs else { return }
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: last, length: 1), in: container)
+        let fragment = layoutManager.lineFragmentRect(forGlyphAt: last, effectiveRange: nil)
+        let baseline = fragment.minY + layoutManager.location(forGlyphAt: last).y
+        let x = origin.x + glyphRect.maxX
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: answerColor]
+        let room = visibleRect.maxX - x - 4
+        guard let text = fitting
+            ? candidates.first(where: { ($0 as NSString).size(withAttributes: attributes).width <= room })
+            : candidates.first
+        else { return }
+        NSAttributedString(string: text, attributes: attributes)
+            .draw(at: NSPoint(x: x, y: origin.y + baseline - font.ascender))
     }
 
     /// ⌥↑ / ⌥↓ move lines. Handled here, in the note's own text view,

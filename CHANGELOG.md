@@ -9,8 +9,8 @@ Notable changes to Wisp. Newest first.
 - **Reminders.** Start a line with "Remind me" and a time, and Wisp notifies you then: `Remind me in 10 minutes to check this`, `Remind me tomorrow to view this section`, `- [ ] Remind me Friday at 3pm to send the invoice`. Click the notification and Wisp opens on that line, highlighted once.
   - The time Wisp understood shows in grey after the line as you type, so you know before you rely on it. A day with no time means 9:00 AM; a time that has already gone today means tomorrow.
   - It's set when you finish the line — press Return, move to another line, or close the panel — so typing "in 1" on the way to "in 15" never sets a stray one. Your note itself isn't changed.
-  - Delete the line or tick it off and the reminder is cancelled. Change other words and it keeps its time. Cut and paste it and it keeps its time too.
-  - The first reminder you set asks macOS for permission to notify you; nothing else ever does. Wisp checks again each time, so allowing notifications later just works.
+  - Delete the line or tick it off and the reminder is cancelled. Change other words and it keeps its time. Cut and paste it and it keeps its time too. File the note to the Inbox and its reminders still go off.
+  - The first reminder you set asks macOS for permission to notify you. Miss the prompt and it comes back the next time you open Wisp while a reminder is waiting; nothing else ever asks. Wisp checks again each time, so allowing notifications later just works.
   - Reminders belong to the Mac you typed them on. A note synced from another Mac shows "not set on this Mac" rather than notifying you twice. Lines that already said "Remind me" before this update are never set on their own.
   - macOS only notifies apps in an Applications folder; run from elsewhere, reminder lines say so.
 

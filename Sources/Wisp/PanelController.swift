@@ -258,7 +258,7 @@ final class PanelController {
             // open.
             model.reloadFromDiskIfChanged()
             // Notifications may have been allowed or turned off since.
-            ReminderStore.shared.refreshPermission()
+            ReminderStore.shared.refreshPermission(askIfUndecided: true)
             model.requestFocus()
             model.refreshPlaceholder()
             // Reset the per-session dismissal so a previously "Later"d

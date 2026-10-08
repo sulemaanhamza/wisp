@@ -21,8 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             UNUserNotificationCenter.current().delegate = self
         }
         MarkdownStyler.reminderLabel = { line in
-            ReminderStore.shared.label(forLine: line)?.text()
+            ReminderStore.shared.label(forLine: line).map { TrailingLabel(full: $0.text(), short: $0.shortText()) }
         }
+        updater.beforeExit = { [weak self] in self?.prepareToExit() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -110,7 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         if LaunchSource.isUserInitiated(launchUserInfo: notification.userInfo) {
             presentForUserAction()
         }
-        ReminderStore.shared.refreshPermission()
+        // A reminder left waiting on an unanswered prompt asks again.
+        ReminderStore.shared.refreshPermission(askIfUndecided: true)
         if let id = pendingReminderID {
             pendingReminderID = nil
             openReminder(id: id)
@@ -235,9 +237,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Flush any pending debounced save so quitting never loses the
-        // last few keystrokes.
+        prepareToExit()
+    }
+
+    /// Everything that must happen before Wisp goes — quitting, or
+    /// restarting into an update, which exits without terminating:
+    /// finish the line being written (setting its reminder), flush the
+    /// pending save, and give macOS a moment to take any reminder just
+    /// handed over.
+    private func prepareToExit() {
+        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
         model.flushSave()
+        ReminderStore.shared.flush()
     }
 
     /// Open an NSOpenPanel for the user to pick a folder. If the

@@ -295,6 +295,9 @@ final class EditorModel: ObservableObject {
             text = loaded
             lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
+            // A line ticked or deleted while Wisp wasn't running cancels
+            // its reminder now, not on the next local edit.
+            ReminderStore.shared.reconcile(noteText: loaded)
             ReminderStore.shared.noteLoaded(loaded)
         } else {
             // Nothing readable. In a sync folder that usually means
@@ -397,6 +400,10 @@ final class EditorModel: ObservableObject {
     /// scratchpad). Suppresses the auto-save that would otherwise fire
     /// from `text.didSet`, so we don't bounce-write what we just read.
     func adoptLoadedText(_ newText: String) {
+        // "Use Existing" sets this note aside for a synced one — moved to
+        // a backup, not deleted — so its reminders keep firing, as when
+        // filed to the Inbox.
+        if newText != text { ReminderStore.shared.archive(noteText: text) }
         isReloading = true
         text = newText
         isReloading = false
@@ -444,8 +451,10 @@ final class EditorModel: ObservableObject {
         // The archived copy also goes to history, so an accidental
         // archive is recoverable from the same place as everything else.
         Snapshots.recordCheckpoint(text: current)
-        // Reminders filed with the note keep firing.
-        ReminderStore.shared.archive(noteText: current)
+        // Reminders filed with the note keep firing — including one on
+        // the line being written, so finish that first.
+        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
+        ReminderStore.shared.archive(noteText: text)
         text = ""
         saveNow()
         requestFocus()
@@ -605,15 +614,16 @@ final class EditorModel: ObservableObject {
             lastSavedText = newText
             lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
             saveFailed = false
-            // A reminder whose line was deleted, ticked or changed is
-            // cancelled; one that comes back soon after is revived.
-            ReminderStore.shared.reconcile(noteText: newText)
         } catch {
             // Keep lastSavedText untouched: the text stays "unsaved",
             // so the next change retries and a reload can't overwrite
             // it with the stale copy on disk.
             saveFailed = true
         }
+        // Even if the write failed: a reminder whose line was deleted,
+        // ticked or changed is cancelled; one that comes back soon after
+        // is revived.
+        ReminderStore.shared.reconcile(noteText: newText)
     }
 
     private func scheduleSave() {

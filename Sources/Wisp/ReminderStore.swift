@@ -2,12 +2,15 @@ import Foundation
 import UserNotifications
 
 /// One reminder that was set. Kept on this Mac only.
+///
+/// A field added later must be optional: a Reminders.json that no
+/// longer decodes loses every reminder in it.
 struct Reminder: Codable, Equatable, Sendable {
     enum State: String, Codable, Sendable {
         /// Handed to macOS.
         case scheduled
-        /// Set, but notifications aren't allowed (yet) — handed to macOS
-        /// as soon as they are.
+        /// Set, but not handed to macOS (yet): notifications aren't
+        /// allowed, or Wisp isn't in an Applications folder.
         case waiting
         case cancelled
     }
@@ -19,10 +22,12 @@ struct Reminder: Codable, Equatable, Sendable {
     /// keeps its reminder, and its time.
     var phrase: String
     var fireDate: Date
-    var created: Date
     var state: State
-    /// Filed to the Inbox with its note: it still fires, and the
-    /// note's absence doesn't cancel it.
+    /// It has been handed to macOS at least once — so if its time has
+    /// gone, it was sent.
+    var handedOver = false
+    /// Filed to the Inbox with its note: it still fires, though its
+    /// line is no longer in the note.
     var archived = false
     var cancelledAt: Date?
 }
@@ -42,6 +47,8 @@ protocol ReminderScheduling: AnyObject {
     func cancel(_ ids: [String])
     func currentPermission(_ done: @escaping @Sendable @MainActor (ReminderPermission) -> Void)
     func requestPermission(_ done: @escaping @Sendable @MainActor (Bool) -> Void)
+    /// Wait, briefly, for hand-offs still in flight — called as Wisp quits.
+    func flush(timeout: TimeInterval)
 }
 
 /// Every reminder that was set, and the rules for keeping them in step
@@ -61,7 +68,7 @@ final class ReminderStore {
     )
 
     /// A line cancelled this recently and back again — cut and pasted,
-    /// unticked, or mid-edit when a save ran — keeps its original time.
+    /// or unticked — keeps the time it was set for.
     static let reviveWindow: TimeInterval = 10 * 60
 
     let fileURL: URL
@@ -70,14 +77,26 @@ final class ReminderStore {
     private(set) var permission: ReminderPermission = .notDetermined
     /// Reminder lines that arrived from disk with nothing set for them.
     private var externalLines: Set<String> = []
+    private var asking = false
+    /// Readings of lines with nothing set, for the current minute. A
+    /// restyle asks about every reminder line, and reading the time is
+    /// the costly part. Labels show minutes, so reusing a reading within
+    /// one can't show a wrong time.
+    private var readings: [String: (reading: Reminders.Reading, phrase: String)?] = [:]
+    private var readingsMinute = 0
+    /// Fires when the next reminder is due, so its line turns to "sent"
+    /// (or "not sent") while the panel is open — macOS only tells a
+    /// running app that's in front.
+    private var tick: Timer?
 
     init(fileURL: URL, scheduler: ReminderScheduling) {
         self.fileURL = fileURL
         self.scheduler = scheduler
         if let data = try? Data(contentsOf: fileURL),
-           let saved = try? Self.decoder.decode([Reminder].self, from: data) {
+           let saved = try? JSONDecoder().decode([Reminder].self, from: data) {
             reminders = saved
         }
+        scheduleTick()
     }
 
     // MARK: What a line shows
@@ -85,118 +104,174 @@ final class ReminderStore {
     /// The grey text after `line`, or nil when it isn't a reminder.
     func label(forLine line: String, now: Date = Date()) -> Reminders.Label? {
         guard Reminders.isReminder(line) else { return nil }
-        if let reminder = active(line) {
-            switch reminder.state {
-            case .scheduled:
-                return reminder.fireDate <= now ? .sent(reminder.fireDate) : .due(reminder.fireDate)
-            case .waiting:
-                // Never handed to macOS: it can't have been sent, whatever
-                // the clock says.
-                if reminder.fireDate <= now { return .notSent }
-                return permission == .denied ? .notificationsOff : .due(reminder.fireDate)
-            case .cancelled:
-                return nil
-            }
-        }
-        if externalLines.contains(line) { return .notOnThisMac }
-        guard let read = Reminders.read(line, now: now) else { return nil }
+        if let reminder = active(line) { return label(for: reminder, now: now) }
+        guard let read = reading(line, now: now) else { return nil }
         switch read.reading {
         case .past: return .past
         case .noTime: return .noTime
         case .at(let date):
+            if externalLines.contains(line) { return .notOnThisMac }
             if !scheduler.canDeliver { return .outsideApplications }
             if permission == .denied { return .notificationsOff }
             return .due(date)
         }
     }
 
-    // MARK: Setting and cancelling
-
-    /// Set what a finished line asks for. Nil when it sets nothing: no
-    /// time, a time gone by, or an app macOS won't deliver to.
-    @discardableResult
-    func commit(line: String, noteText: String, now: Date = Date()) -> Reminder? {
-        guard let read = Reminders.read(line, now: now), case .at(let date) = read.reading else { return nil }
-        if let existing = active(line) { return existing }
-        guard scheduler.canDeliver else { return nil }
-        externalLines.remove(line)
-        let noteLines = Self.lines(of: noteText)
-
-        // The same line, cancelled moments ago: cut and pasted, or
-        // unticked. It keeps the time it was set for.
-        if let i = reminders.lastIndex(where: {
-            $0.line == line && $0.state == .cancelled && recent($0, now) && $0.fireDate > now
-        }) {
-            return revive(i, as: line, now: now)
+    private func label(for reminder: Reminder, now: Date) -> Reminders.Label {
+        if reminder.fireDate <= now {
+            return reminder.handedOver ? .sent(reminder.fireDate) : .notSent
         }
-        // An edited line: a reminder whose own line has gone, with the
-        // same time phrase. "In 10 minutes" doesn't restart because a
-        // word after it changed.
-        if !read.phrase.isEmpty, let i = reminders.lastIndex(where: {
-            $0.phrase.lowercased() == read.phrase.lowercased() && $0.fireDate > now && !$0.archived
-                && !noteLines.contains($0.line) && ($0.state != .cancelled || recent($0, now))
-        }) {
-            return revive(i, as: line, now: now)
+        if reminder.state == .scheduled {
+            // Turned off since it was set: macOS will drop it.
+            return permission == .denied ? .notificationsOff : .due(reminder.fireDate)
         }
-
-        reminders.append(Reminder(
-            id: UUID().uuidString, line: line, phrase: read.phrase,
-            fireDate: date, created: now, state: .waiting
-        ))
-        save()
-        refreshPermission(askIfUndecided: true)
-        changed()
-        return reminders.last
+        if !scheduler.canDeliver { return .outsideApplications }
+        switch permission {
+        case .denied: return .notificationsOff
+        case .notDetermined: return .needsPermission
+        case .allowed: return .due(reminder.fireDate)
+        }
     }
 
-    private func revive(_ i: Int, as line: String, now: Date) -> Reminder {
-        if reminders[i].state == .scheduled { scheduler.cancel([reminders[i].id]) }
-        reminders[i].line = line
-        reminders[i].state = .waiting
+    private func reading(_ line: String, now: Date) -> (reading: Reminders.Reading, phrase: String)? {
+        let minute = Int((now.timeIntervalSinceReferenceDate / 60).rounded(.down))
+        if minute != readingsMinute {
+            readings = [:]
+            readingsMinute = minute
+        }
+        if let known = readings[line] { return known }
+        let read = Reminders.read(line, now: now)
+        readings.updateValue(read, forKey: line)
+        return read
+    }
+
+    func isExternal(_ line: String) -> Bool { externalLines.contains(line) }
+
+    // MARK: Setting and cancelling
+
+    /// Set what a finished line asks for.
+    ///
+    /// `origin` is the line this one was edited from, when the editor
+    /// knows it. An edit that keeps the time words keeps the reminder
+    /// and its time — "in 10 minutes" doesn't restart because a later
+    /// word changed, and one that already fired doesn't fire again.
+    /// New time words replace it.
+    ///
+    /// Nil when nothing is set: no time, or a time gone by.
+    @discardableResult
+    func commit(line: String, origin: String? = nil, now: Date = Date()) -> Reminder? {
+        guard let read = Reminders.read(line, now: now), case .at(let date) = read.reading else { return nil }
+        if let existing = active(line) { return existing }
+        externalLines.remove(line)
+
+        if let origin, origin != line, let i = reminders.lastIndex(where: {
+            $0.line == origin && !$0.archived && ($0.state != .cancelled || recent($0, now))
+        }) {
+            if reminders[i].phrase.lowercased() == read.phrase.lowercased() {
+                reminders[i].line = line
+                return restore(i, now: now)
+            }
+            withdraw(i, now: now)
+        }
+        // The same line back moments after it went: cut and pasted, or
+        // unticked. It keeps its time. Only one still to fire: a line
+        // typed again after its reminder went off is a new reminder,
+        // not the old one's "sent".
+        if let i = reminders.lastIndex(where: {
+            $0.line == line && $0.state == .cancelled && !$0.archived && recent($0, now) && $0.fireDate > now
+        }) {
+            return restore(i, now: now)
+        }
+
+        // Whole seconds: macOS fires on the second, and a fractional
+        // time would read "not yet" for the moment after it fires.
+        let whole = Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded(.up))
+        reminders.append(Reminder(id: UUID().uuidString, line: line, phrase: read.phrase, fireDate: whole, state: .waiting))
+        deliver(reminders.count - 1, now: now)
+        return finishChange(at: reminders.count - 1)
+    }
+
+    /// Bring back a reminder, as it stood: waiting to be handed over if
+    /// its time is ahead, or as it ended if its time has gone.
+    private func restore(_ i: Int, now: Date) -> Reminder {
         reminders[i].cancelledAt = nil
+        if reminders[i].fireDate > now {
+            if reminders[i].state == .scheduled {
+                // Same id: macOS replaces the pending one, now with the
+                // line's new words.
+                scheduler.schedule(reminders[i])
+            } else {
+                deliver(i, now: now)
+            }
+        } else if reminders[i].state == .cancelled {
+            reminders[i].state = reminders[i].handedOver ? .scheduled : .waiting
+        }
+        return finishChange(at: i)
+    }
+
+    /// Hand a reminder to macOS when that can happen now — permission
+    /// already known — so it's done even if Wisp is quitting; otherwise
+    /// it waits, and a permission check follows.
+    private func deliver(_ i: Int, now: Date) {
+        guard reminders[i].fireDate > now else { return }
+        if scheduler.canDeliver, permission == .allowed {
+            reminders[i].state = .scheduled
+            reminders[i].handedOver = true
+            scheduler.schedule(reminders[i])
+        } else {
+            reminders[i].state = .waiting
+        }
+    }
+
+    private func withdraw(_ i: Int, now: Date) {
+        if reminders[i].state == .scheduled, reminders[i].fireDate > now { scheduler.cancel([reminders[i].id]) }
+        reminders[i].state = .cancelled
+        reminders[i].cancelledAt = now
+    }
+
+    private func finishChange(at i: Int) -> Reminder {
+        let reminder = reminders[i]
         save()
         refreshPermission(askIfUndecided: true)
         changed()
-        return reminders[i]
+        return reminder
     }
 
     /// Cancel reminders whose line is no longer in the note — deleted,
-    /// ticked off, or changed. Run on every save; `commit` brings one
-    /// back if the line returns within the revive window.
+    /// ticked off, or changed — sent ones included, so a line typed
+    /// again later is a new reminder. Run on every save; `commit` brings
+    /// one back if its line returns within the revive window.
     func reconcile(noteText: String, now: Date = Date()) {
-        let noteLines = Self.lines(of: noteText)
+        let live = reminders.indices.filter { reminders[$0].state != .cancelled && !reminders[$0].archived }
+        let staleCancelled = reminders.contains {
+            $0.state == .cancelled && ($0.cancelledAt ?? .distantPast) < now.addingTimeInterval(-86_400)
+        }
+        guard !live.isEmpty || !externalLines.isEmpty || staleCancelled else { return }
+        let present = Self.present(Set(live.map { reminders[$0].line }).union(externalLines), in: noteText)
         var touched = false
-        // Sent ones too: delete a line and type it again, and it's a new
-        // reminder, not the old one's "sent". Only one still pending is
-        // withdrawn from macOS — a delivered one stays in Notification
-        // Center.
-        for i in reminders.indices where reminders[i].state != .cancelled && !reminders[i].archived
-            && !noteLines.contains(reminders[i].line) {
-            if reminders[i].state == .scheduled, reminders[i].fireDate > now { scheduler.cancel([reminders[i].id]) }
-            reminders[i].state = .cancelled
-            reminders[i].cancelledAt = now
+        for i in live where !present.contains(reminders[i].line) {
+            withdraw(i, now: now)
             touched = true
         }
-        externalLines.formIntersection(noteLines)
-        // Old history goes: cancellations past the revive window, and
-        // anything that fired more than a month ago.
+        externalLines.formIntersection(present)
+        // History goes once it can't come back: a cancellation older
+        // than a day, well past the revive window.
         let before = reminders.count
-        reminders.removeAll {
-            ($0.state == .cancelled && ($0.cancelledAt ?? .distantPast) < now.addingTimeInterval(-86_400))
-                || $0.fireDate < now.addingTimeInterval(-30 * 86_400)
-        }
+        reminders.removeAll { $0.state == .cancelled && ($0.cancelledAt ?? .distantPast) < now.addingTimeInterval(-86_400) }
         if touched || reminders.count != before {
             save()
             changed()
         }
     }
 
-    /// The note is being filed to the Inbox: its reminders keep firing,
-    /// though their lines leave the note.
+    /// The note is being filed to the Inbox, or set aside for a synced
+    /// one: its reminders keep firing, though their lines leave the note.
     func archive(noteText: String) {
-        let noteLines = Self.lines(of: noteText)
+        let live = reminders.indices.filter { reminders[$0].state != .cancelled && !reminders[$0].archived }
+        guard !live.isEmpty else { return }
+        let present = Self.present(Set(live.map { reminders[$0].line }), in: noteText)
         var touched = false
-        for i in reminders.indices where reminders[i].state != .cancelled && noteLines.contains(reminders[i].line) {
+        for i in live where present.contains(reminders[i].line) {
             reminders[i].archived = true
             touched = true
         }
@@ -216,33 +291,56 @@ final class ReminderStore {
 
     /// Ask macOS for the current setting — never trust an earlier
     /// answer: in the spike, a prompt left unanswered reported "not
-    /// allowed", though Allow worked when clicked later.
+    /// allowed", though Allow worked when clicked later. With
+    /// `askIfUndecided`, a reminder waiting on an undecided setting
+    /// brings the prompt back.
     func refreshPermission(askIfUndecided: Bool = false) {
         scheduler.currentPermission { [weak self] current in
             guard let self else { return }
-            if current == .notDetermined, askIfUndecided, self.reminders.contains(where: { $0.state == .waiting }) {
+            self.permission = current
+            // Outside Applications macOS refuses without showing a
+            // prompt; asking would only record a refusal.
+            if current == .notDetermined, askIfUndecided, !self.asking, self.scheduler.canDeliver, self.hasWaiting() {
+                self.asking = true
                 self.scheduler.requestPermission { [weak self] granted in
                     guard let self else { return }
-                    self.permission = granted ? .allowed : .denied
-                    if granted { self.scheduleWaiting() }
-                    self.changed()
+                    self.asking = false
+                    if granted {
+                        self.permission = .allowed
+                        self.scheduleWaiting()
+                        self.changed()
+                        return
+                    }
+                    // "Not granted" is also what an unanswered prompt
+                    // says; the setting itself tells refused from undecided.
+                    self.scheduler.currentPermission { [weak self] after in
+                        self?.permission = after
+                        self?.changed()
+                    }
                 }
                 return
             }
-            self.permission = current
             if current == .allowed { self.scheduleWaiting() }
             self.changed()
         }
     }
 
+    private func hasWaiting(now: Date = Date()) -> Bool {
+        reminders.contains { $0.state == .waiting && $0.fireDate > now }
+    }
+
     private func scheduleWaiting(now: Date = Date()) {
+        guard scheduler.canDeliver else { return }
         var touched = false
         for i in reminders.indices where reminders[i].state == .waiting && reminders[i].fireDate > now {
-            reminders[i].state = .scheduled
-            scheduler.schedule(reminders[i])
+            deliver(i, now: now)
             touched = true
         }
         if touched { save() }
+    }
+
+    func flush(timeout: TimeInterval = 1) {
+        scheduler.flush(timeout: timeout)
     }
 
     // MARK: Finding
@@ -251,33 +349,81 @@ final class ReminderStore {
         reminders.first { $0.id == id }
     }
 
-    /// Where a reminder's line is now: the same line, or failing that
-    /// a line with the same time phrase. Nil when it's gone.
+    /// Where a reminder's line is now, or nil when it's gone — deleted,
+    /// or filed to the Inbox with its note.
     func locate(_ reminder: Reminder, in text: String) -> NSRange? {
-        var exact: NSRange?
-        var similar: NSRange?
+        guard !reminder.archived else { return nil }
+        var found: NSRange?
         (text as NSString).enumerateSubstrings(
             in: NSRange(location: 0, length: (text as NSString).length), options: .byLines
         ) { line, range, _, stop in
-            guard let line else { return }
             if line == reminder.line {
-                exact = range
+                found = range
                 stop.pointee = true
-            } else if similar == nil, !reminder.phrase.isEmpty,
-                      Reminders.read(line)?.phrase.lowercased() == reminder.phrase.lowercased() {
-                similar = range
             }
         }
-        return exact ?? similar
+        return found
     }
 
+    /// The reminder a line in the note stands for. Filed ones don't
+    /// count — the same line typed in a fresh note is a new reminder.
     private func active(_ line: String) -> Reminder? {
-        reminders.last { $0.line == line && $0.state != .cancelled }
+        reminders.last { $0.line == line && $0.state != .cancelled && !$0.archived }
     }
 
     private func recent(_ reminder: Reminder, _ now: Date) -> Bool {
         guard let at = reminder.cancelledAt else { return true }
         return now.timeIntervalSince(at) <= Self.reviveWindow
+    }
+
+    /// Which of `candidates` are whole lines of `text`. This runs on
+    /// every save: splitting a 1 MB note into lines takes ~80 ms, a
+    /// byte search for one line ~0.5 ms — so a search each, unless
+    /// there are very many.
+    nonisolated static func present(_ candidates: Set<String>, in text: String) -> Set<String> {
+        guard !candidates.isEmpty else { return [] }
+        guard candidates.count <= 100 else { return candidates.intersection(lines(of: text)) }
+        var text = text
+        return text.withUTF8 { note in candidates.filter { containsLine($0, in: note) } }
+    }
+
+    /// Whether `line` is a whole line of `note`, both UTF-8. A match of
+    /// valid UTF-8 in valid UTF-8 always starts and ends on a character,
+    /// so only the bytes either side need checking.
+    nonisolated private static func containsLine(_ line: String, in note: UnsafeBufferPointer<UInt8>) -> Bool {
+        var line = line
+        return line.withUTF8 { needle in
+            guard let base = note.baseAddress, let bytes = needle.baseAddress, needle.count > 0 else { return false }
+            var from = 0
+            while note.count - from >= needle.count {
+                guard let hit = memmem(base + from, note.count - from, bytes, needle.count) else { return false }
+                let start = UnsafeRawPointer(base).distance(to: UnsafeRawPointer(hit))
+                if breakBefore(start, in: note), breakAfter(start + needle.count, in: note) { return true }
+                from = start + 1
+            }
+            return false
+        }
+    }
+
+    /// A line break (any of CharacterSet.newlines) ends at `index`, or
+    /// it's the start.
+    nonisolated private static func breakBefore(_ index: Int, in b: UnsafeBufferPointer<UInt8>) -> Bool {
+        guard index > 0 else { return true }
+        let c = b[index - 1]
+        if (0x0A...0x0D).contains(c) { return true }
+        if c == 0x85 { return index >= 2 && b[index - 2] == 0xC2 }                       // U+0085
+        if c == 0xA8 || c == 0xA9 { return index >= 3 && b[index - 3] == 0xE2 && b[index - 2] == 0x80 }  // U+2028/9
+        return false
+    }
+
+    /// A line break starts at `index`, or it's the end.
+    nonisolated private static func breakAfter(_ index: Int, in b: UnsafeBufferPointer<UInt8>) -> Bool {
+        guard index < b.count else { return true }
+        let c = b[index]
+        if (0x0A...0x0D).contains(c) { return true }
+        if c == 0xC2 { return index + 1 < b.count && b[index + 1] == 0x85 }
+        if c == 0xE2 { return index + 2 < b.count && b[index + 1] == 0x80 && (b[index + 2] == 0xA8 || b[index + 2] == 0xA9) }
+        return false
     }
 
     nonisolated static func lines(of text: String) -> Set<String> {
@@ -292,25 +438,34 @@ final class ReminderStore {
 
     // MARK: Disk
 
-    private static let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        // Dates as Foundation stores them, not ISO 8601 text (whole
-        // seconds only) or seconds since 1970 (one more rounding): a
-        // reminder reloads exactly as it was saved.
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return e
-    }()
-    private static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        return d
-    }()
-
+    /// Dates as Foundation stores them, not ISO 8601 text (whole
+    /// seconds only) or seconds since 1970 (one more rounding): a
+    /// reminder reloads exactly as it was saved.
     private func save() {
-        guard let data = try? Self.encoder.encode(reminders) else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(reminders) else { return }
         try? FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
         )
         try? data.write(to: fileURL, options: .atomic)
+        scheduleTick()
+    }
+
+    private func scheduleTick(now: Date = Date()) {
+        tick?.invalidate()
+        guard let next = reminders
+            .filter({ $0.state != .cancelled && !$0.archived && $0.fireDate > now })
+            .map(\.fireDate).min() else { return }
+        let timer = Timer(timeInterval: next.timeIntervalSince(now) + 0.5, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.changed()
+                self?.scheduleTick()
+            }
+        }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        tick = timer
     }
 
     func changed() {
@@ -321,7 +476,7 @@ final class ReminderStore {
 /// The real thing: local notifications through UNUserNotificationCenter.
 @MainActor
 final class SystemReminderScheduler: ReminderScheduling {
-    var canDeliver: Bool { Self.isInApplicationsFolder(Bundle.main.bundlePath) }
+    var canDeliver: Bool { Self.isAppBundle && Self.isInApplicationsFolder(Bundle.main.bundlePath) }
 
     /// UNUserNotificationCenter raises an exception — killing the app —
     /// when asked for from a process that isn't an .app bundle: `swift
@@ -335,24 +490,29 @@ final class SystemReminderScheduler: ReminderScheduling {
         bundlePath.hasSuffix(".app") && bundlePath.contains("/Applications/")
     }
 
+    /// Hand-offs not yet acknowledged, so quitting can wait for them.
+    private let inFlight = DispatchGroup()
+
     func schedule(_ reminder: Reminder) {
         guard Self.isAppBundle else { return }
         let content = UNMutableNotificationContent()
         content.title = "Wisp"
         content.body = Reminders.sentence(ofLine: reminder.line)
         content.sound = .default
-        content.userInfo = ["id": reminder.id]
-        // The time zone is part of the trigger, so it fires at the
-        // moment it was set for even if you travel or the clocks change.
-        let calendar = Calendar.current
-        var when = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: reminder.fireDate)
-        when.calendar = calendar
-        when.timeZone = calendar.timeZone
+        // In UTC, so the moment is exact: no daylight-saving hour that
+        // happens twice, and travelling doesn't move it.
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        var when = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: reminder.fireDate)
+        when.calendar = utc
+        when.timeZone = utc.timeZone
         let request = UNNotificationRequest(
             identifier: reminder.id, content: content,
             trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: false)
         )
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        let group = inFlight
+        group.enter()
+        UNUserNotificationCenter.current().add(request) { _ in group.leave() }
     }
 
     func cancel(_ ids: [String]) {
@@ -384,5 +544,9 @@ final class SystemReminderScheduler: ReminderScheduling {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             Task { @MainActor in done(granted) }
         }
+    }
+
+    func flush(timeout: TimeInterval) {
+        _ = inFlight.wait(timeout: .now() + timeout)
     }
 }
