@@ -56,6 +56,10 @@ enum HelpContent {
                 Row(what: "Divider", how: ["---"], kind: .syntax),
                 Row(what: "Emoji", how: [":rocket:", ":check:", ":bulb:"], kind: .syntax),
             ]),
+            Section(title: "Reminders — start a line with Remind me", rows: [
+                Row(what: "In a while", how: ["Remind me in 10 minutes …"], kind: .syntax),
+                Row(what: "On a day", how: ["Remind me Friday at 3pm …"], kind: .syntax),
+            ]),
             Section(title: "Menu bar icon, right-click", rows: [
                 Row(what: "Eight fonts, serif and sans", how: ["Font"], kind: .menu),
                 Row(what: "How much desktop shows through", how: ["Transparency"], kind: .menu),
@@ -102,7 +106,7 @@ struct HelpOverlay: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 40) {
                             column(sections.prefix(3))
-                            column(sections.suffix(2))
+                            column(sections.suffix(3))
                         }
                         column(sections[...])
                     }

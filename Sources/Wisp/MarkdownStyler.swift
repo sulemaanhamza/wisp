@@ -5,6 +5,10 @@ extension NSAttributedString.Key {
     /// after it. Drawn by CaretTextView; never in the file.
     static let wispMathAnswer = NSAttributedString.Key("wispMathAnswer")
 
+    /// The grey text after a "Remind me" line — when it fires, or why
+    /// it can't. Drawn by CaretTextView; never in the file.
+    static let wispReminder = NSAttributedString.Key("wispReminder")
+
     /// The URL a run of text points at. Deliberately not `.link`:
     /// NSTextView follows `.link` on a plain click, which would make the
     /// text of a URL impossible to click into and edit. ⌘-click opens it.
@@ -23,6 +27,11 @@ extension NSAttributedString.Key {
 @MainActor
 enum MarkdownStyler {
     nonisolated static let lineHeightMultiple: CGFloat = 1.35
+
+    /// The grey text for a reminder line, from ReminderStore. A hook
+    /// rather than a call, so the styler stays free of app state; unset
+    /// (as in most tests), reminder lines are styled as plain text.
+    static var reminderLabel: ((String) -> String?)?
 
     // Spans never cross a line break of any kind: a paragraph restyle
     // only sees whole paragraphs, and NSString ends those at CR and
@@ -134,7 +143,11 @@ enum MarkdownStyler {
                 continue
             }
 
-            styleAnswer(content, storage: storage, ns: ns)
+            // A reminder line's grey text is its time; it never also
+            // gets a maths answer.
+            if !styleReminder(content, storage: storage, ns: ns) {
+                styleAnswer(content, storage: storage, ns: ns)
+            }
 
             let first = ns.character(at: content.location)
             if first == 0x23,  // #
@@ -172,6 +185,23 @@ enum MarkdownStyler {
             .wispMathAnswer, value: answer,
             range: NSRange(location: end - 1, length: lineEnd - (end - 1))
         )
+    }
+
+    /// Puts the reminder's grey text on the line's last character and
+    /// any spaces after it. True when the line is a reminder.
+    private static func styleReminder(_ content: NSRange, storage: NSTextStorage, ns: NSString) -> Bool {
+        guard let reminderLabel else { return false }
+        var lineEnd = NSMaxRange(content)
+        while lineEnd > content.location, isBreak(ns.character(at: lineEnd - 1)) { lineEnd -= 1 }
+        let line = ns.substring(with: NSRange(location: content.location, length: lineEnd - content.location))
+        guard let label = reminderLabel(line) else { return false }
+        var end = lineEnd
+        while end > content.location, ns.character(at: end - 1) == 0x20 || ns.character(at: end - 1) == 0x09 {
+            end -= 1
+        }
+        guard end > content.location else { return true }
+        storage.addAttribute(.wispReminder, value: label, range: NSRange(location: end - 1, length: lineEnd - (end - 1)))
+        return true
     }
 
     private static func isBreak(_ c: unichar) -> Bool {

@@ -1,13 +1,29 @@
 import AppKit
 import Carbon.HIToolbox
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, UNUserNotificationCenterDelegate {
     let model = EditorModel()
     let updater = Updater()
     private var menuBarController: MenuBarController?
     private var panelController: PanelController?
     private let hotKey = HotKeyMonitor()
+    /// A reminder clicked before the panel existed — the click that
+    /// launched Wisp. Opened once launching finishes.
+    private var pendingReminderID: String?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Set before launching finishes, or a click that launched Wisp
+        // never arrives (seen in the spike). Only in a real app bundle:
+        // anywhere else, merely asking for the center kills the process.
+        if SystemReminderScheduler.isAppBundle {
+            UNUserNotificationCenter.current().delegate = self
+        }
+        MarkdownStyler.reminderLabel = { line in
+            ReminderStore.shared.label(forLine: line)?.text()
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.make(target: self)
@@ -94,6 +110,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if LaunchSource.isUserInitiated(launchUserInfo: notification.userInfo) {
             presentForUserAction()
         }
+        ReminderStore.shared.refreshPermission()
+        if let id = pendingReminderID {
+            pendingReminderID = nil
+            openReminder(id: id)
+        }
+    }
+
+    // MARK: Reminders
+
+    /// A reminder's notification was clicked: open the panel on its line.
+    private func openReminder(id: String) {
+        guard panelController != nil else {
+            pendingReminderID = id
+            return
+        }
+        presentForUserAction()
+        model.showReminder(id: id)
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let id = response.notification.request.identifier
+        completionHandler()
+        Task { @MainActor in self.openReminder(id: id) }
+    }
+
+    /// Due while Wisp is running: still shown as a banner, and its line
+    /// now reads "sent".
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+        Task { @MainActor in ReminderStore.shared.changed() }
     }
 
     /// Re-launching the app while it's already running (Spotlight,

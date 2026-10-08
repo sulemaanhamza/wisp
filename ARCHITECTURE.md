@@ -31,7 +31,8 @@ dependencies, no Xcode project.
 | `HorizontalRuleLayoutManager.swift` | Draws `---` lines as a full-width rule that tracks the panel's width. |
 | `Snapshots.swift` | Local version history. |
 | `StorageLocation.swift` | Where `scratchpad.md` lives, and moving it. |
-| `Inbox.swift`, `Checkbox.swift`, `LineEditing.swift`, `InlineMath.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
+| `ReminderStore.swift` | Reminders that were set: kept in `Application Support/Wisp/Reminders.json`, matched to their lines, scheduled with `UNUserNotificationCenter` behind `ReminderScheduling` (faked in the self-tests). |
+| `Inbox.swift`, `Checkbox.swift`, `LineEditing.swift`, `InlineMath.swift`, `Reminders.swift`, `SmartEditing.swift`, `Headings.swift`, `TextSearch.swift`, `MarkdownWrap.swift`, `EmojiReplace.swift`, `ReleaseNotes.swift`, `Tips.swift`, `LaunchSource.swift`, `PanelFrameStore.swift` | Pure logic, no AppKit state. This is what the self-tests cover. |
 | `Updater.swift` | GitHub Releases → background download → bundle swap on next launch. |
 | `SelfTests.swift` | The suite. |
 
@@ -57,6 +58,11 @@ re-listed each time and any change in which lines sit inside a block
 falls back to a full restyle. The self-tests hold the two paths to
 identical output, including 300 random edits. Anything new has to stay
 line-local, or teach `MarkdownStyler.blocksUnchanged` about itself.
+
+**Only typing sets a reminder.** A "Remind me" line becomes a reminder
+when its line is finished in the editor — never because a note was
+loaded, reloaded or synced. That rule is what stops two Macs sharing a
+note from both notifying, and an update from scheduling old lines.
 
 **Pure logic gets its own type.** If a rule can be written without
 AppKit, it should be, so the self-tests can pin it.

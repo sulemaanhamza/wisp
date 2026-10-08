@@ -257,6 +257,8 @@ final class PanelController {
             // Cheap (one stat + maybe one read), so safe to do every
             // open.
             model.reloadFromDiskIfChanged()
+            // Notifications may have been allowed or turned off since.
+            ReminderStore.shared.refreshPermission()
             model.requestFocus()
             model.refreshPlaceholder()
             // Reset the per-session dismissal so a previously "Later"d

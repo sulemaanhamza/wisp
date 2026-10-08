@@ -8,6 +8,10 @@ struct MinimalTextEditor: NSViewRepresentable {
     var scrollTarget: Int
     var findHighlightToken: Int
     var findHighlightRange: NSRange
+    /// Bumped when a reminder's notification is clicked: scroll to its
+    /// line and highlight it once.
+    var reminderFlashToken: Int = 0
+    var reminderFlashRange = NSRange(location: 0, length: 0)
     var fontSize: FontSize
     var fontFace: FontFace
     var theme: Theme
@@ -62,6 +66,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         textView.string = text
         textView.textStorage?.delegate = context.coordinator
         context.coordinator.observeWidth(of: scrollView, textView: textView)
+        context.coordinator.observeReminders(in: textView)
 
         Self.applyPalette(
             to: textView, face: fontFace, size: fontSize,
@@ -78,6 +83,7 @@ struct MinimalTextEditor: NSViewRepresentable {
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         coordinator.stopObservingWidth()
+        coordinator.stopObservingReminders()
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -131,6 +137,13 @@ struct MinimalTextEditor: NSViewRepresentable {
                 textView.scrollRangeToVisible(range)
                 textView.setSelectedRange(range)
                 textView.window?.makeFirstResponder(textView)
+            }
+        }
+        if context.coordinator.lastReminderFlashToken != reminderFlashToken {
+            context.coordinator.lastReminderFlashToken = reminderFlashToken
+            let range = reminderFlashRange
+            DispatchQueue.main.async {
+                context.coordinator.flash(range, in: textView)
             }
         }
         if context.coordinator.lastFindHighlightToken != findHighlightToken {
@@ -263,6 +276,21 @@ struct MinimalTextEditor: NSViewRepresentable {
         /// and must arrive exactly as written.
         private var typedSingleCharacter = false
         private var widthObserver: NSObjectProtocol?
+        var lastReminderFlashToken = 0
+        /// "Remind me" lines typed or changed here and not yet finished.
+        /// A reminder is set when its line is finished — the caret
+        /// leaves it, or the panel loses focus or closes — so typing
+        /// "in 1" on the way to "in 15" never sets a stray one.
+        private(set) var draftReminders: Set<String> = []
+        /// The shared store; the self-tests hand in one of their own so
+        /// they never touch the real reminders or post notifications.
+        lazy var reminderStore: ReminderStore = .shared
+        private var reminderObservers: [NSObjectProtocol] = []
+        private var flashTimer: Timer?
+        private var flashStep = 0
+        private weak var flashLayoutManager: NSLayoutManager?
+        private var flashRange = NSRange(location: 0, length: 0)
+        private var flashHoldsStill = false
 
         init(text: Binding<String>) {
             self.text = text
@@ -353,6 +381,161 @@ struct MinimalTextEditor: NSViewRepresentable {
                 edited: clearsHighlight ? nil : edited
             )
             redrawLines(around: edited, in: textView)
+            noteDraftReminders(around: edited, in: textView)
+        }
+
+        // MARK: Reminders
+
+        /// Remember the reminder lines an edit touched, to set when
+        /// they're finished.
+        private func noteDraftReminders(around edited: NSRange, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let ns = storage.string as NSString
+            let start = min(edited.location, ns.length)
+            let end = min(max(start, NSMaxRange(edited)), ns.length)
+            let paragraphs = ns.paragraphRange(for: NSRange(location: start, length: end - start))
+            guard ns.range(of: "remind me", options: .caseInsensitive, range: paragraphs).location != NSNotFound else { return }
+            ns.enumerateSubstrings(in: paragraphs, options: .byLines) { line, range, _, _ in
+                guard let line, Reminders.isReminder(line),
+                      range.location >= storage.length
+                        || storage.attribute(.wispCodeBlock, at: range.location, effectiveRange: nil) == nil
+                else { return }
+                self.draftReminders.insert(line)
+            }
+        }
+
+        /// Set the drafts whose lines are finished. The caret's own line
+        /// is still being written unless the whole editor is being left.
+        func commitDraftReminders(in textView: NSTextView, includingCaretLine: Bool) {
+            guard !draftReminders.isEmpty else { return }
+            let ns = textView.string as NSString
+            let caret = min(textView.selectedRange().location, ns.length)
+            let caretLine = Self.lineText(at: caret, in: ns)
+            for draft in draftReminders where includingCaretLine || draft != caretLine {
+                draftReminders.remove(draft)
+                // A draft from an earlier keystroke ("in 1" before "in
+                // 15") is no longer a line of the note; it sets nothing.
+                guard Self.containsLine(draft, in: ns) else { continue }
+                reminderStore.commit(line: draft, noteText: textView.string)
+            }
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView, !textView.isFieldEditor else { return }
+            commitDraftReminders(in: textView, includingCaretLine: false)
+        }
+
+        func observeReminders(in textView: NSTextView) {
+            let center = NotificationCenter.default
+            // A finished thought: the panel lost focus or closed, or Wisp
+            // is quitting.
+            for name in [NSWindow.didResignKeyNotification, NSApplication.willTerminateNotification] {
+                reminderObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self, weak textView] note in
+                    let sender = (note.object as? NSWindow).map(ObjectIdentifier.init)
+                    MainActor.assumeIsolated {
+                        guard let self, let textView else { return }
+                        if let sender, sender != textView.window.map(ObjectIdentifier.init) { return }
+                        self.commitDraftReminders(in: textView, includingCaretLine: true)
+                    }
+                })
+            }
+            // A reminder set, sent, or blocked: its grey text changes.
+            reminderObservers.append(center.addObserver(forName: ReminderStore.didChange, object: nil, queue: .main) { [weak self, weak textView] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let textView else { return }
+                    self.restyleReminderLines(in: textView)
+                }
+            })
+        }
+
+        func stopObservingReminders() {
+            reminderObservers.forEach(NotificationCenter.default.removeObserver)
+            reminderObservers = []
+            flashTimer?.invalidate()
+        }
+
+        private func restyleReminderLines(in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let ns = storage.string as NSString
+            var search = NSRange(location: 0, length: ns.length)
+            while search.length > 0 {
+                let hit = ns.range(of: "remind me", options: .caseInsensitive, range: search)
+                guard hit.location != NSNotFound else { break }
+                let line = ns.lineRange(for: hit)
+                MinimalTextEditor.restyle(
+                    storage, face: lastFontFace, size: lastFontSize,
+                    theme: lastTheme, transparency: lastTransparency, edited: line
+                )
+                redrawLines(around: line, in: textView)
+                search = NSRange(location: NSMaxRange(line), length: ns.length - NSMaxRange(line))
+            }
+        }
+
+        /// Bring a reminder's line into view and highlight it once: held,
+        /// then faded, or simply held and cleared under Reduce Motion.
+        func flash(_ range: NSRange, in textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                  range.length > 0, NSMaxRange(range) <= (textView.string as NSString).length else { return }
+            textView.window?.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: NSMaxRange(range), length: 0))
+            textView.scrollRangeToVisible(range)
+            flashTimer?.invalidate()
+            if let previous = flashLayoutManager {
+                previous.removeTemporaryAttribute(.backgroundColor, forCharacterRange: flashRange)
+            }
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: Self.flashColor(1), forCharacterRange: range)
+            flashLayoutManager = layoutManager
+            flashRange = range
+            flashStep = 0
+            flashHoldsStill = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            flashTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.stepFlash() }
+            }
+        }
+
+        private func stepFlash() {
+            guard let layoutManager = flashLayoutManager else {
+                flashTimer?.invalidate()
+                return
+            }
+            flashStep += 1
+            // About half a second at full strength, then a second to fade.
+            let strength = flashHoldsStill
+                ? (flashStep < 15 ? 1.0 : 0.0)
+                : min(1, max(0, 1 - Double(flashStep - 5) / 10))
+            if strength <= 0 {
+                layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: flashRange)
+                flashTimer?.invalidate()
+            } else {
+                layoutManager.addTemporaryAttribute(.backgroundColor, value: Self.flashColor(strength), forCharacterRange: flashRange)
+            }
+        }
+
+        private static func flashColor(_ strength: Double) -> NSColor {
+            NSColor.controlAccentColor.withAlphaComponent(0.28 * strength)
+        }
+
+        private static func lineText(at location: Int, in ns: NSString) -> String {
+            var line = ns.substring(with: ns.lineRange(for: NSRange(location: location, length: 0)))
+            while let last = line.unicodeScalars.last, CharacterSet.newlines.contains(last) {
+                line.unicodeScalars.removeLast()
+            }
+            return line
+        }
+
+        /// Whether `line` is a whole line of the note — a search, not a
+        /// split, since this runs as the caret moves.
+        private static func containsLine(_ line: String, in ns: NSString) -> Bool {
+            var search = NSRange(location: 0, length: ns.length)
+            while search.length > 0 {
+                let hit = ns.range(of: line, options: .literal, range: search)
+                guard hit.location != NSNotFound else { return false }
+                let startsLine = hit.location == 0 || CharacterSet.newlines.contains(UnicodeScalar(ns.character(at: hit.location - 1)) ?? " ")
+                let endsLine = NSMaxRange(hit) == ns.length || CharacterSet.newlines.contains(UnicodeScalar(ns.character(at: NSMaxRange(hit))) ?? " ")
+                if startsLine && endsLine { return true }
+                search = NSRange(location: hit.location + 1, length: ns.length - hit.location - 1)
+            }
+            return false
         }
 
         /// An inline-math answer is drawn past the end of its line's

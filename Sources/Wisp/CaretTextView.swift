@@ -9,8 +9,8 @@ import AppKit
 /// beside it. Keeping the bottom edge — the line's descent — and
 /// trimming the top to the font's own ascent lines it up with the text.
 final class CaretTextView: NSTextView {
-    /// Colour of inline-math answers. Setting it repaints: answers
-    /// aren't text, so a restyle alone wouldn't redraw them.
+    /// Colour of inline-math answers and reminder times. Setting it
+    /// repaints: they aren't text, so a restyle alone wouldn't redraw them.
     var answerColor: NSColor = .tertiaryLabelColor {
         didSet { needsDisplay = true }
     }
@@ -45,22 +45,27 @@ final class CaretTextView: NSTextView {
         let glyphs = layoutManager.glyphRange(forBoundingRect: band, in: container)
         guard glyphs.length > 0 else { return }
         let chars = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
-        storage.enumerateAttribute(.wispMathAnswer, in: chars) { value, range, _ in
-            guard let answer = value as? String, range.length > 0 else { return }
-            // The last glyph of `= ` places the answer; a bare `=` gets
-            // a space's worth of gap, as if one had been typed.
-            let last = layoutManager.glyphIndexForCharacter(at: NSMaxRange(range) - 1)
-            guard last < layoutManager.numberOfGlyphs else { return }
-            let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: last, length: 1), in: container)
-            let fragment = layoutManager.lineFragmentRect(forGlyphAt: last, effectiveRange: nil)
-            let baseline = fragment.minY + layoutManager.location(forGlyphAt: last).y
-            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-                ?? self.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-            let text = NSAttributedString(string: (range.length == 1 ? " " : "") + answer, attributes: [
-                .font: font,
-                .foregroundColor: answerColor,
-            ])
-            text.draw(at: NSPoint(x: origin.x + glyphRect.maxX, y: origin.y + baseline - font.ascender))
+        // An answer follows its `=` like typed text; a reminder's time
+        // stands a little apart from the sentence.
+        for (key, gap) in [(NSAttributedString.Key.wispMathAnswer, " "), (.wispReminder, "   ")] {
+            storage.enumerateAttribute(key, in: chars) { value, range, _ in
+                guard let trailing = value as? String, range.length > 0 else { return }
+                // The range's last glyph places the text. With nothing
+                // typed after the line's end, `gap` stands in for spaces.
+                let last = layoutManager.glyphIndexForCharacter(at: NSMaxRange(range) - 1)
+                guard last < layoutManager.numberOfGlyphs else { return }
+                let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: last, length: 1), in: container)
+                let fragment = layoutManager.lineFragmentRect(forGlyphAt: last, effectiveRange: nil)
+                let baseline = fragment.minY + layoutManager.location(forGlyphAt: last).y
+                let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+                    ?? self.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                let lead = range.length == 1 ? gap : String(gap.dropFirst())
+                let text = NSAttributedString(string: lead + trailing, attributes: [
+                    .font: font,
+                    .foregroundColor: answerColor,
+                ])
+                text.draw(at: NSPoint(x: origin.x + glyphRect.maxX, y: origin.y + baseline - font.ascender))
+            }
         }
     }
 

@@ -109,6 +109,9 @@ final class EditorModel: ObservableObject {
     /// pattern as scrollToken/scrollTarget. A zero-length range clears.
     @Published var findHighlightToken: Int = 0
     private(set) var findHighlightRange = NSRange(location: 0, length: 0)
+    /// A clicked reminder's line, to scroll to and highlight once.
+    @Published private(set) var reminderFlashToken: Int = 0
+    private(set) var reminderFlashRange = NSRange(location: 0, length: 0)
     private var findMatches: [NSRange] = []
     private var findIndex = 0
     @Published var hotKey: HotKey = .default {
@@ -292,6 +295,7 @@ final class EditorModel: ObservableObject {
             text = loaded
             lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
+            ReminderStore.shared.noteLoaded(loaded)
         } else {
             // Nothing readable. In a sync folder that usually means
             // iCloud is still holding the file in the cloud — ask for
@@ -382,6 +386,10 @@ final class EditorModel: ObservableObject {
         }
         lastSavedText = loaded
         lastLoadedMTime = mtime
+        // A line deleted on another Mac cancels its reminder here; a
+        // reminder line written there is never set here.
+        ReminderStore.shared.reconcile(noteText: loaded)
+        ReminderStore.shared.noteLoaded(loaded)
     }
 
     /// Replace the in-memory text with a freshly chosen content (e.g.,
@@ -394,6 +402,8 @@ final class EditorModel: ObservableObject {
         isReloading = false
         lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
+        ReminderStore.shared.reconcile(noteText: newText)
+        ReminderStore.shared.noteLoaded(newText)
     }
 
     nonisolated private static func fileMTime(at url: URL) -> Date? {
@@ -434,6 +444,8 @@ final class EditorModel: ObservableObject {
         // The archived copy also goes to history, so an accidental
         // archive is recoverable from the same place as everything else.
         Snapshots.recordCheckpoint(text: current)
+        // Reminders filed with the note keep firing.
+        ReminderStore.shared.archive(noteText: current)
         text = ""
         saveNow()
         requestFocus()
@@ -472,6 +484,15 @@ final class EditorModel: ObservableObject {
         guard themePreference == .system else { return }
         let resolved = themePreference.resolve()
         if resolved != theme { theme = resolved }
+    }
+
+    /// Scroll to a clicked reminder's line and highlight it once. Does
+    /// nothing when the line is gone — filed to the Inbox, or deleted.
+    func showReminder(id: String) {
+        guard let reminder = ReminderStore.shared.reminder(id: id),
+              let range = ReminderStore.shared.locate(reminder, in: text) else { return }
+        reminderFlashRange = range
+        reminderFlashToken &+= 1
     }
 
     func jumpTo(_ heading: Heading) {
@@ -584,6 +605,9 @@ final class EditorModel: ObservableObject {
             lastSavedText = newText
             lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
             saveFailed = false
+            // A reminder whose line was deleted, ticked or changed is
+            // cancelled; one that comes back soon after is revived.
+            ReminderStore.shared.reconcile(noteText: newText)
         } catch {
             // Keep lastSavedText untouched: the text stays "unsaved",
             // so the next change retries and a reload can't overwrite
@@ -633,6 +657,8 @@ struct EditorView: View {
                         scrollTarget: model.scrollTarget,
                         findHighlightToken: model.findHighlightToken,
                         findHighlightRange: model.findHighlightRange,
+                        reminderFlashToken: model.reminderFlashToken,
+                        reminderFlashRange: model.reminderFlashRange,
                         fontSize: model.fontSize,
                         fontFace: model.fontFace,
                         theme: model.theme,
