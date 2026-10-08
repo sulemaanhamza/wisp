@@ -497,6 +497,24 @@ final class EditorModel: ObservableObject {
 
     /// Scroll to a clicked reminder's line and highlight it once. Does
     /// nothing when the line is gone — filed to the Inbox, or deleted.
+    /// The notification's Done button: tick the reminder's line off.
+    /// Through the editor when there is one, so it's one undoable edit
+    /// and the caret stays put; otherwise straight into the note. Saved
+    /// at once — Wisp may be in the background, and nothing else will
+    /// prompt a save soon.
+    func markReminderDone(id: String) {
+        guard let reminder = ReminderStore.shared.reminder(id: id),
+              let range = ReminderStore.shared.locate(reminder, in: text) else { return }
+        let request = LineReplacement(
+            range: range, line: reminder.line, replacement: Reminders.ticked(reminder.line)
+        )
+        NotificationCenter.default.post(name: MinimalTextEditor.replaceLine, object: request)
+        if !request.applied {
+            text = (text as NSString).replacingCharacters(in: range, with: request.replacement)
+        }
+        saveNow()
+    }
+
     func showReminder(id: String) {
         guard let reminder = ReminderStore.shared.reminder(id: id),
               let range = ReminderStore.shared.locate(reminder, in: text) else { return }

@@ -435,21 +435,27 @@ enum MarkdownStyler {
 }
 
 /// A reminder's grey text, with a shorter form for when the full one
-/// won't fit beside a long line. An object so it can sit in an
-/// attribute; equal by value, so restyles compare as they should.
+/// won't fit beside a long line, and the SF Symbol drawn before it, if
+/// any — one that ticks the line when clicked, with `ticksLine`. An
+/// object so it can sit in an attribute; equal by value, so restyles
+/// compare as they should.
 final class TrailingLabel: NSObject {
     let full: String
     let short: String
+    let symbol: String?
+    let ticksLine: Bool
 
-    init(full: String, short: String) {
+    init(full: String, short: String, symbol: String? = nil, ticksLine: Bool = false) {
         self.full = full
         self.short = short
+        self.symbol = symbol
+        self.ticksLine = ticksLine
     }
 
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? TrailingLabel else { return false }
-        return other.full == full && other.short == short
+        return other.full == full && other.short == short && other.symbol == symbol && other.ticksLine == ticksLine
     }
 
-    override var hash: Int { full.hashValue ^ short.hashValue }
+    override var hash: Int { full.hashValue ^ short.hashValue ^ (symbol?.hashValue ?? 0) ^ ticksLine.hashValue }
 }

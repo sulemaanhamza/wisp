@@ -123,13 +123,13 @@ final class ReminderStore {
         }
         if reminder.state == .scheduled {
             // Turned off since it was set: macOS will drop it.
-            return permission == .denied ? .notificationsOff : .due(reminder.fireDate)
+            return permission == .denied ? .notificationsOff : .set(reminder.fireDate)
         }
         if !scheduler.canDeliver { return .outsideApplications }
         switch permission {
         case .denied: return .notificationsOff
         case .notDetermined: return .needsPermission
-        case .allowed: return .due(reminder.fireDate)
+        case .allowed: return .set(reminder.fireDate)
         }
     }
 
@@ -493,12 +493,26 @@ final class SystemReminderScheduler: ReminderScheduling {
     /// Hand-offs not yet acknowledged, so quitting can wait for them.
     private let inFlight = DispatchGroup()
 
+    nonisolated static let category = "WispReminder"
+    nonisolated static let doneAction = "WispReminderDone"
+
+    /// The Done button on a reminder's notification. Handled without
+    /// bringing Wisp forward: it ticks the line and that's all.
+    nonisolated static func registerActions() {
+        guard isAppBundle else { return }
+        let done = UNNotificationAction(identifier: doneAction, title: "Done", options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: category, actions: [done], intentIdentifiers: [], options: []),
+        ])
+    }
+
     func schedule(_ reminder: Reminder) {
         guard Self.isAppBundle else { return }
         let content = UNMutableNotificationContent()
         content.title = "Wisp"
         content.body = Reminders.sentence(ofLine: reminder.line)
         content.sound = .default
+        content.categoryIdentifier = Self.category
         // In UTC, so the moment is exact: no daylight-saving hour that
         // happens twice, and travelling doesn't move it.
         var utc = Calendar(identifier: .gregorian)

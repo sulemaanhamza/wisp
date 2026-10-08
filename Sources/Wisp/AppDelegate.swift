@@ -20,8 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         if SystemReminderScheduler.isAppBundle {
             UNUserNotificationCenter.current().delegate = self
         }
+        SystemReminderScheduler.registerActions()
         MarkdownStyler.reminderLabel = { line in
-            ReminderStore.shared.label(forLine: line).map { TrailingLabel(full: $0.text(), short: $0.shortText()) }
+            ReminderStore.shared.label(forLine: line).map {
+                TrailingLabel(full: $0.text(), short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine)
+            }
         }
         updater.beforeExit = { [weak self] in self?.prepareToExit() }
     }
@@ -137,8 +140,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let id = response.notification.request.identifier
+        let done = response.actionIdentifier == SystemReminderScheduler.doneAction
         completionHandler()
-        Task { @MainActor in self.openReminder(id: id) }
+        Task { @MainActor in
+            // Done ticks the line and leaves Wisp where it was; the
+            // notification itself opens Wisp on the line.
+            if done {
+                self.model.markReminderDone(id: id)
+            } else {
+                self.openReminder(id: id)
+            }
+        }
     }
 
     /// Due while Wisp is running: still shown as a banner, and its line

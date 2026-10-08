@@ -7,6 +7,9 @@ struct MinimalTextEditor: NSViewRepresentable {
     /// restarts into an update — so a reminder on the line being written
     /// is set rather than lost.
     static let finishEditing = Notification.Name("WispFinishEditing")
+    /// Posted (synchronously) with a LineReplacement: change one line of
+    /// the note from outside the editor, as an edit of the editor's own.
+    static let replaceLine = Notification.Name("WispReplaceLine")
 
     @Binding var text: String
     var focusToken: Int
@@ -502,6 +505,17 @@ struct MinimalTextEditor: NSViewRepresentable {
                     self.commitDraftReminders(in: textView, includingCaretLine: true)
                 }
             })
+            // Done pressed on a notification: tick its line here, where
+            // it's undoable and the caret can be kept.
+            reminderObservers.append(center.addObserver(
+                forName: MinimalTextEditor.replaceLine, object: nil, queue: nil
+            ) { [weak self, weak textView] note in
+                let request = note.object as? LineReplacement
+                MainActor.assumeIsolated {
+                    guard let self, let textView, let request else { return }
+                    self.replace(request, in: textView)
+                }
+            })
             // A reminder set, sent, or blocked: its grey text changes.
             reminderObservers.append(center.addObserver(forName: ReminderStore.didChange, object: nil, queue: .main) { [weak self, weak textView] _ in
                 MainActor.assumeIsolated {
@@ -559,6 +573,30 @@ struct MinimalTextEditor: NSViewRepresentable {
             flashTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.stepFlash() }
             }
+        }
+
+        /// One line replaced, if it still reads as the request expects.
+        /// The caret keeps its place in the text around it.
+        func replace(_ request: LineReplacement, in textView: NSTextView) {
+            guard let storage = textView.textStorage else { return }
+            let ns = storage.string as NSString
+            // The whole line, not just its first characters: "… post"
+            // must not match "… post later".
+            guard NSMaxRange(request.range) <= ns.length,
+                  ns.lineRange(for: NSRange(location: request.range.location, length: 0)).location == request.range.location,
+                  Self.lineText(at: request.range.location, in: ns) == request.line,
+                  textView.shouldChangeText(in: request.range, replacementString: request.replacement)
+            else { return }
+            var selection = textView.selectedRange()
+            storage.replaceCharacters(in: request.range, with: request.replacement)
+            if selection.location > request.range.location {
+                let delta = (request.replacement as NSString).length - request.range.length
+                selection.location = max(request.range.location, selection.location + delta)
+            }
+            textView.setSelectedRange(NSRange(location: min(selection.location, storage.length),
+                                              length: min(selection.length, storage.length - min(selection.location, storage.length))))
+            textView.didChangeText()
+            request.applied = true
         }
 
         /// Text moved under the highlight: the fixed range would now mark
@@ -625,13 +663,14 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         // MARK: Checkbox clicks
 
-        /// Only claim the click when it lands on a `[ ]`, or is a ⌘-click
-        /// on a link; every other click falls through to the text view
-        /// untouched.
+        /// Only claim the click when it lands on a `[ ]` or a sent
+        /// reminder's tick, or is a ⌘-click on a link; every other click
+        /// falls through to the text view untouched.
         func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool {
             guard let click = recognizer as? NSClickGestureRecognizer,
                   let textView = recognizer.view as? NSTextView else { return false }
             let point = click.location(in: textView)
+            if (textView as? CaretTextView)?.reminderTick(at: point) != nil { return true }
             if NSEvent.modifierFlags.contains(.command) {
                 return Self.link(in: textView, at: point) != nil
             }
@@ -641,6 +680,7 @@ struct MinimalTextEditor: NSViewRepresentable {
         @objc func handleCheckboxClick(_ recognizer: NSClickGestureRecognizer) {
             guard let textView = recognizer.view as? NSTextView else { return }
             let point = recognizer.location(in: textView)
+            if tickReminder(at: point, in: textView) { return }
             if NSEvent.modifierFlags.contains(.command) {
                 if let url = Self.link(in: textView, at: point) {
                     NSWorkspace.shared.open(url)
@@ -651,6 +691,15 @@ struct MinimalTextEditor: NSViewRepresentable {
             let state = NSRange(location: box.location + 1, length: 1)
             let current = (textView.string as NSString).substring(with: state)
             replace(in: textView, range: state, with: current == " " ? "x" : " ")
+        }
+
+        /// A click on a sent reminder's tick: the line is ticked off, as
+        /// one undoable edit, the caret left where it was.
+        func tickReminder(at point: NSPoint, in textView: NSTextView) -> Bool {
+            guard let line = (textView as? CaretTextView)?.reminderTick(at: point) else { return false }
+            let text = (textView.string as NSString).substring(with: line)
+            replace(LineReplacement(range: line, line: text, replacement: Reminders.ticked(text)), in: textView)
+            return true
         }
 
         /// Whether `location` is inside a fenced code block, as of the
@@ -865,5 +914,22 @@ struct MinimalTextEditor: NSViewRepresentable {
             // line off-screen until the user scrolls manually.
             textView.scrollRangeToVisible(newRange)
         }
+    }
+}
+
+/// One line of the note to change from outside the editor — Done on a
+/// reminder's notification. `applied` tells the poster whether an
+/// editor took it.
+@MainActor
+final class LineReplacement {
+    let range: NSRange
+    let line: String
+    let replacement: String
+    var applied = false
+
+    init(range: NSRange, line: String, replacement: String) {
+        self.range = range
+        self.line = line
+        self.replacement = replacement
     }
 }

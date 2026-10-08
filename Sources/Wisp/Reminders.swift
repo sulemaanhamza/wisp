@@ -52,6 +52,15 @@ enum Reminders {
 
     static func isReminder(_ line: String) -> Bool { body(ofLine: line) != nil }
 
+    /// The line ticked off, as the notification's Done button leaves it:
+    /// a task's box checked, anything else made a checked task the way
+    /// ⌘L would, its indent and bullet kept.
+    static func ticked(_ line: String) -> String {
+        guard !Checkbox.isChecked(line) else { return line }
+        let task = Checkbox.boxRange(in: line) == nil ? LineEditing.toggleTask(line: line) : line
+        return Checkbox.toggling(task) ?? line
+    }
+
     /// The line without its list, checkbox or quote marker — what a
     /// notification shows.
     static func sentence(ofLine line: String) -> String {
@@ -294,8 +303,12 @@ enum Reminders {
 
     /// What the grey text after a reminder line says.
     enum Label: Equatable {
-        /// Read as you type, or set: the time it will fire.
+        /// Read as you type: the time it would fire. Not set yet.
         case due(Date)
+        /// Set — handed to macOS, or about to be. Drawn with a bell in
+        /// place of the arrow, so a finished line looks different from
+        /// one still being written.
+        case set(Date)
         case sent(Date)
         case past
         case noTime
@@ -312,6 +325,7 @@ enum Reminders {
         func text(now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String {
             switch self {
             case .due(let date): return "\u{2192} " + Reminders.describe(date, now: now, calendar: calendar, locale: locale)
+            case .set(let date): return Reminders.describe(date, now: now, calendar: calendar, locale: locale)
             case .sent(let date): return "sent " + Reminders.describe(date, now: now, calendar: calendar, locale: locale)
             case .past: return "time has passed"
             case .noTime: return "no time found"
@@ -329,6 +343,7 @@ enum Reminders {
         func shortText(now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String {
             switch self {
             case .due(let date): return "\u{2192} " + Reminders.clock(date, calendar: calendar, locale: locale)
+            case .set(let date): return Reminders.clock(date, calendar: calendar, locale: locale)
             case .sent: return "sent"
             case .past: return "passed"
             case .noTime: return "no time"
@@ -338,6 +353,22 @@ enum Reminders {
             case .outsideApplications: return "move to Applications"
             case .notOnThisMac: return "not set here"
             }
+        }
+
+        /// The SF Symbol drawn before the text, if any: a bell while it
+        /// waits to fire, a tick once it has — click it when it's done.
+        var symbol: String? {
+            switch self {
+            case .set: return "bell"
+            case .sent: return "checkmark.circle"
+            default: return nil
+            }
+        }
+
+        /// Clicking the symbol ticks the line off.
+        var ticksLine: Bool {
+            if case .sent = self { return true }
+            return false
         }
     }
 

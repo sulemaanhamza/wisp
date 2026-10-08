@@ -1330,7 +1330,9 @@ enum SelfTests {
         check("store: finishing it again sets nothing new",
               store.commit(line: tenMinutes, now: start.addingTimeInterval(5))?.id == set1?.id
                 && store.reminders.count == 1)
-        check("store: the line shows its time", store.label(forLine: tenMinutes, now: start) == .due(set1!.fireDate))
+        check("store: before it's finished the line shows the time it read",
+              store.label(forLine: "Remind me in 10 minutes to check th", now: start) == .due(start.addingTimeInterval(600)))
+        check("store: once set the line shows its time, as set", store.label(forLine: tenMinutes, now: start) == .set(set1!.fireDate))
 
         store.reconcile(noteText: "notes\n", now: start.addingTimeInterval(20))
         check("store: a deleted line cancels it",
@@ -1407,7 +1409,30 @@ enum SelfTests {
         let fresh = retype.commit(line: oneMinute, now: afterwards.addingTimeInterval(5))
         check("store: typed again after deleting, it's a new reminder, not the old \"sent\"",
               fresh != nil && fresh?.id != firedOnce.id && fresh!.fireDate > afterwards
-                && retype.label(forLine: oneMinute, now: afterwards.addingTimeInterval(6)) == .due(fresh!.fireDate))
+                && retype.label(forLine: oneMinute, now: afterwards.addingTimeInterval(6)) == .set(fresh!.fireDate))
+
+        let setAt = on(10, 8, 14, 42)
+        let setText = Reminders.Label.set(setAt).text(now: on(10, 8, 11, 16), calendar: gmt, locale: us)
+        check("label: set shows the time with a bell, no arrow; read-as-you-type shows the arrow, no bell",
+              setText.replacingOccurrences(of: "\u{202F}", with: " ") == "2:42 PM"
+                && Reminders.Label.set(setAt).symbol == "bell" && Reminders.Label.due(setAt).symbol == nil
+                && !Reminders.Label.set(setAt).shortText(now: on(10, 8, 11, 16), calendar: gmt, locale: us).contains("\u{2192}"))
+        check("label: once sent, a tick that ticks the line; a set one's bell does nothing when clicked",
+              Reminders.Label.sent(setAt).symbol == "checkmark.circle" && Reminders.Label.sent(setAt).ticksLine
+                && !Reminders.Label.set(setAt).ticksLine && !Reminders.Label.notSent.ticksLine)
+        check("label: the bell is part of what a restyle compares",
+              TrailingLabel(full: "a", short: "b", symbol: "bell") != TrailingLabel(full: "a", short: "b")
+                && TrailingLabel(full: "a", short: "b", symbol: "bell") == TrailingLabel(full: "a", short: "b", symbol: "bell"))
+
+        check("done: a plain line becomes a ticked task", Reminders.ticked("Remind me at 3pm") == "- [x] Remind me at 3pm")
+        check("done: a task's box is ticked, nothing else changes",
+              Reminders.ticked("  * [ ] Remind me at 3pm") == "  * [x] Remind me at 3pm")
+        check("done: a bullet keeps its marker and indent",
+              Reminders.ticked("\t- Remind me at 3pm") == "\t- [x] Remind me at 3pm")
+        check("done: an already ticked line is left alone",
+              Reminders.ticked("- [x] Remind me at 3pm") == "- [x] Remind me at 3pm")
+        check("done: a ticked line is no longer a reminder, so ticking cancels it",
+              !Reminders.isReminder(Reminders.ticked("1. Remind me at 3pm")) && !Reminders.isReminder(Reminders.ticked("Remind me: at 3pm")))
 
         let wanted: Set<String> = ["Remind me at 3pm", "Remind me tomorrow"]
         check("lines: found as whole lines, across every kind of line break",
@@ -1583,7 +1608,78 @@ enum SelfTests {
         check("editor: a new line passing through a set line's words is its own reminder",
               firstReminder != nil && typingStore.reminder(id: firstReminder!.id)?.line == setFirst
                 && typingStore.reminders.contains { $0.line == setFirst + " too" && $0.id != firstReminder?.id })
+
+        // Done on a notification, with the editor open.
+        remView.allowsUndo = true
+        let doneWindow = NSWindow(contentRect: remView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        doneWindow.contentView = remView
+        remView.string = "a\nRemind me tomorrow to post\nbcd"
+        remView.setSelectedRange(NSRange(location: (remView.string as NSString).length - 1, length: 0))
+        let doneRequest = LineReplacement(range: NSRange(location: 2, length: ("Remind me tomorrow to post" as NSString).length), line: "Remind me tomorrow to post",
+                                          replacement: Reminders.ticked("Remind me tomorrow to post"))
+        NotificationCenter.default.post(name: MinimalTextEditor.replaceLine, object: doneRequest)
+        check("editor: Done ticks the line in the editor, and the caret keeps its place",
+              doneRequest.applied && remView.string == "a\n- [x] Remind me tomorrow to post\nbcd"
+                && remView.selectedRange().location == (remView.string as NSString).length - 1)
+        remView.undoManager?.undo()
+        check("editor: …as one edit that undo takes back", remView.string == "a\nRemind me tomorrow to post\nbcd")
+        remView.string = "a\nRemind me tomorrow to post later\nbcd"
+        let staleRequest = LineReplacement(range: NSRange(location: 2, length: ("Remind me tomorrow to post" as NSString).length), line: "Remind me tomorrow to post",
+                                           replacement: "- [x] Remind me tomorrow to post")
+        NotificationCenter.default.post(name: MinimalTextEditor.replaceLine, object: staleRequest)
+        check("editor: Done leaves a line that has since changed alone",
+              !staleRequest.applied && remView.string == "a\nRemind me tomorrow to post later\nbcd")
+        doneWindow.contentView = nil
         remCoordinator.stopObservingReminders()
+
+        // The tick on a sent reminder, clicked in the editor.
+        let tickView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 200))
+        tickView.allowsUndo = true
+        tickView.font = MinimalTextEditor.makeFont(face: .charter, size: 16)
+        let tickWindow = NSWindow(contentRect: tickView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        tickWindow.contentView = tickView
+        let tickCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { "" }, set: { _ in }))
+        tickCoordinator.reminderStore = typingStore
+        tickView.delegate = tickCoordinator
+        tickView.textStorage?.delegate = tickCoordinator
+        let sentLine = "Remind me in 1 minute to test"
+        tickView.string = sentLine + "\nnext"
+        MarkdownStyler.reminderLabel = { line in
+            Reminders.isReminder(line)
+                ? TrailingLabel(full: "sent 3:38 PM", short: "sent", symbol: "checkmark.circle", ticksLine: true) : nil
+        }
+        MarkdownStyler.restyle(tickView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .off)
+        MarkdownStyler.reminderLabel = nil
+        tickView.layoutManager!.ensureLayout(for: tickView.textContainer!)
+        let firstFragment = tickView.layoutManager!.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        let tickY = tickView.textContainerOrigin.y + firstFragment.midY
+        let tickX = stride(from: 0.0, through: Double(tickView.bounds.width), by: 1)
+            .first { tickView.reminderTick(at: NSPoint(x: $0, y: tickY)) != nil }
+        check("tick: a sent reminder offers a tick past its text, and nothing else on the line is claimed",
+              tickX.map { $0 > 100 } == true && tickView.reminderTick(at: NSPoint(x: 20, y: tickY)) == nil
+                && tickView.reminderTick(at: NSPoint(x: tickX!, y: tickY + firstFragment.height * 1.5)) == nil)
+        if let tickX {
+            let over = tickView.convert(NSPoint(x: tickX + 4, y: tickY), to: nil)
+            tickView.mouseMoved(with: NSEvent.mouseEvent(
+                with: .mouseMoved, location: over, modifierFlags: [], timestamp: 0,
+                windowNumber: tickWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+            )!)
+        }
+        check("tick: hovering it says what it does", tickView.toolTip == "Mark done")
+        let tickClicked = tickX.map { tickCoordinator.tickReminder(at: NSPoint(x: $0 + 4, y: tickY), in: tickView) } ?? false
+        check("tick: clicking it ticks the line off", tickClicked && tickView.string == "- [x] " + sentLine + "\nnext")
+        check("tick: …and the hover goes with it", tickView.toolTip == nil)
+        tickView.undoManager?.undo()
+        check("tick: …as one edit that undo takes back", tickView.string == sentLine + "\nnext")
+        MarkdownStyler.reminderLabel = { line in
+            Reminders.isReminder(line) ? TrailingLabel(full: "Tomorrow 9:00 AM", short: "9:00 AM", symbol: "bell") : nil
+        }
+        MarkdownStyler.restyle(tickView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .off)
+        MarkdownStyler.reminderLabel = nil
+        check("tick: a set reminder's bell isn't clickable",
+              !stride(from: 0.0, through: Double(tickView.bounds.width), by: 1)
+                .contains { tickView.reminderTick(at: NSPoint(x: $0, y: tickY)) != nil })
+        tickWindow.contentView = nil
 
         // An emoji at the end of a reminder line stays whole.
         let emojiLine = NSTextStorage(string: "Remind me tomorrow to ship \u{1F680}")
