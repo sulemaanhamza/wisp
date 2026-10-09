@@ -21,12 +21,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
             UNUserNotificationCenter.current().delegate = self
         }
         SystemReminderScheduler.registerActions()
-        MarkdownStyler.reminderLabel = { line in
+        CaretTextView.reminderLabel = { line in
             ReminderStore.shared.label(forLine: line).map {
                 TrailingLabel(full: $0.text(), short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine)
             }
         }
         updater.beforeExit = { [weak self] in self?.prepareToExit() }
+        let timeChanged: @Sendable (Notification) -> Void = { _ in
+            MainActor.assumeIsolated { ReminderStore.shared.timeChanged() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main, using: timeChanged
+        )
+        NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: .main, using: timeChanged)
+        NotificationCenter.default.addObserver(forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main, using: timeChanged)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -258,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     /// pending save, and give macOS a moment to take any reminder just
     /// handed over.
     private func prepareToExit() {
-        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
+        model.editor?.finishEditing()
         model.flushSave()
         ReminderStore.shared.flush()
     }

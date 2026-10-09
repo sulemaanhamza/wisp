@@ -64,6 +64,11 @@ when its line is finished in the editor — never because a note was
 loaded, reloaded or synced. That rule is what stops two Macs sharing a
 note from both notifying, and an update from scheduling old lines.
 
+**A reminder's grey text is drawn, not stored.** `CaretTextView` asks
+`ReminderStore` for each visible reminder line's label as it draws, so a
+reminder being set, sent or blocked costs a redraw — never a restyle,
+and never a change to the note or its styling.
+
 **Pure logic gets its own type.** If a rule can be written without
 AppKit, it should be, so the self-tests can pin it.
 

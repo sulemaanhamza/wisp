@@ -5,11 +5,6 @@ extension NSAttributedString.Key {
     /// after it. Drawn by CaretTextView; never in the file.
     static let wispMathAnswer = NSAttributedString.Key("wispMathAnswer")
 
-    /// The grey text after a "Remind me" line — when it fires, or why
-    /// it can't — as a TrailingLabel. Drawn by CaretTextView; never in
-    /// the file.
-    static let wispReminder = NSAttributedString.Key("wispReminder")
-
     /// The URL a run of text points at. Deliberately not `.link`:
     /// NSTextView follows `.link` on a plain click, which would make the
     /// text of a URL impossible to click into and edit. ⌘-click opens it.
@@ -28,11 +23,6 @@ extension NSAttributedString.Key {
 @MainActor
 enum MarkdownStyler {
     nonisolated static let lineHeightMultiple: CGFloat = 1.35
-
-    /// The grey text for a reminder line, from ReminderStore. A hook
-    /// rather than a call, so the styler stays free of app state; unset
-    /// (as in most tests), reminder lines are styled as plain text.
-    static var reminderLabel: ((String) -> TrailingLabel?)?
 
     // Spans never cross a line break of any kind: a paragraph restyle
     // only sees whole paragraphs, and NSString ends those at CR and
@@ -144,9 +134,9 @@ enum MarkdownStyler {
                 continue
             }
 
-            // A reminder line's grey text is its time; it never also
-            // gets a maths answer.
-            if !styleReminder(content, storage: storage, ns: ns) {
+            // A reminder line's grey text is its time (drawn by
+            // CaretTextView); it never also gets a maths answer.
+            if !(Reminders.mightBeReminder(ns, content) && Reminders.isReminder(ns.substring(with: content))) {
                 styleAnswer(content, storage: storage, ns: ns)
             }
 
@@ -186,31 +176,6 @@ enum MarkdownStyler {
             .wispMathAnswer, value: answer,
             range: NSRange(location: end - 1, length: lineEnd - (end - 1))
         )
-    }
-
-    /// Puts the reminder's grey text on the line's last character and
-    /// any spaces after it. True when the line is a reminder.
-    private static func styleReminder(_ content: NSRange, storage: NSTextStorage, ns: NSString) -> Bool {
-        // A plain substring search first: nearly every line isn't a
-        // reminder, and asking the store about each one cost a full
-        // restyle of a large note two and a half times its time.
-        guard let reminderLabel,
-              ns.range(of: "remind me", options: .caseInsensitive, range: content).location != NSNotFound
-        else { return false }
-        var lineEnd = NSMaxRange(content)
-        while lineEnd > content.location, isBreak(ns.character(at: lineEnd - 1)) { lineEnd -= 1 }
-        let line = ns.substring(with: NSRange(location: content.location, length: lineEnd - content.location))
-        guard let label = reminderLabel(line) else { return false }
-        var end = lineEnd
-        while end > content.location, ns.character(at: end - 1) == 0x20 || ns.character(at: end - 1) == 0x09 {
-            end -= 1
-        }
-        guard end > content.location else { return true }
-        // From the start of the last whole character: starting inside
-        // an emoji's surrogate pair splits it, and TextKit draws nothing.
-        let last = ns.rangeOfComposedCharacterSequence(at: end - 1)
-        storage.addAttribute(.wispReminder, value: label, range: NSRange(location: last.location, length: lineEnd - last.location))
-        return true
     }
 
     private static func isBreak(_ c: unichar) -> Bool {
@@ -432,30 +397,4 @@ enum MarkdownStyler {
             return NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(merged), size: font.pointSize) ?? font
         }
     }
-}
-
-/// A reminder's grey text, with a shorter form for when the full one
-/// won't fit beside a long line, and the SF Symbol drawn before it, if
-/// any — one that ticks the line when clicked, with `ticksLine`. An
-/// object so it can sit in an attribute; equal by value, so restyles
-/// compare as they should.
-final class TrailingLabel: NSObject {
-    let full: String
-    let short: String
-    let symbol: String?
-    let ticksLine: Bool
-
-    init(full: String, short: String, symbol: String? = nil, ticksLine: Bool = false) {
-        self.full = full
-        self.short = short
-        self.symbol = symbol
-        self.ticksLine = ticksLine
-    }
-
-    override func isEqual(_ object: Any?) -> Bool {
-        guard let other = object as? TrailingLabel else { return false }
-        return other.full == full && other.short == short && other.symbol == symbol && other.ticksLine == ticksLine
-    }
-
-    override var hash: Int { full.hashValue ^ short.hashValue ^ (symbol?.hashValue ?? 0) ^ ticksLine.hashValue }
 }

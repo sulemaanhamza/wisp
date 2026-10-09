@@ -161,16 +161,34 @@ enum LineEditing {
         return formatter.string(from: date)
     }
 
+    /// One range replaced, the selection kept on the same text around
+    /// it — for an edit made from outside the caret (ticking a reminder
+    /// off), which mustn't move where you were.
+    static func replacing(_ range: NSRange, with replacement: String, keeping selection: NSRange) -> Edit {
+        let delta = (replacement as NSString).length - range.length
+        // After the range, by the change in length; inside it, the same —
+        // ticking adds its "- [x] " in front — kept within the new text.
+        func moved(_ location: Int) -> Int {
+            guard location > range.location else { return location }
+            if location >= NSMaxRange(range) { return location + delta }
+            return min(max(range.location, location + delta), range.location + (replacement as NSString).length)
+        }
+        let start = moved(selection.location)
+        let end = moved(NSMaxRange(selection))
+        return Edit(range: range, replacement: replacement, selection: NSRange(location: start, length: max(0, end - start)))
+    }
+
     /// Route an edit through the text view so it's undoable and every
-    /// text-change observer hears about it.
+    /// text-change observer hears about it. `scroll`: bring the
+    /// selection into view — not for an edit made away from the caret.
     @MainActor
-    static func apply(_ edit: Edit, to textView: NSTextView) {
+    static func apply(_ edit: Edit, to textView: NSTextView, scroll: Bool = true) {
         guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
         textView.textStorage?.replaceCharacters(in: edit.range, with: edit.replacement)
         // Selection first: didChangeText hands the text to observers
         // that read the caret, and it should already be where it lands.
         textView.setSelectedRange(edit.selection)
         textView.didChangeText()
-        textView.scrollRangeToVisible(edit.selection)
+        if scroll { textView.scrollRangeToVisible(edit.selection) }
     }
 }

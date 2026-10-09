@@ -1244,7 +1244,7 @@ enum SelfTests {
         check("time: this weekend is Saturday at 9", clock(due(readAt("Remind me this weekend to clean"))) == "10/10 9:00")
         check("time: the weekend at 10am", clock(due(readAt("Remind me at the weekend at 10am"))) == "10/10 10:00")
         let saturdayNoon = karachi.date(from: DateComponents(year: 2026, month: 10, day: 10, hour: 12, minute: 0))!
-        check("time: this weekend on Saturday afternoon is Sunday", clock(due(readAt("Remind me this weekend", saturdayNoon))) == "10/11 9:00")
+        check("time: this weekend on Saturday after 9 is the next whole hour", clock(due(readAt("Remind me this weekend", saturdayNoon))) == "10/10 13:00")
         check("time: end of day is 5 PM", clock(due(readAt("Remind me end of day to send it"))) == "10/8 17:00")
         check("time: EOD after 5 PM is tomorrow's", clock(due(readAt("Remind me EOD", lateNight))) == "10/9 17:00")
         check("time: by the end of the day", clock(due(readAt("Remind me by the end of the day"))) == "10/8 17:00")
@@ -1252,6 +1252,67 @@ enum SelfTests {
         check("time: in the morning, before 9, is today", clock(due(readAt("Remind me in the morning", early))) == "10/8 9:00")
         check("time: the phrase is what matched",
               Reminders.read("Remind me in 10 minutes to check this", now: thursday, calendar: karachi)?.phrase == "in 10 minutes")
+        // Wisp reads every span and clock time itself, so these don't
+        // depend on the real clock.
+        check("time: a time after a span of days joins it", clock(due(readAt("Remind me in 3 days at 5pm"))) == "10/11 17:00")
+        check("time: …before it too", clock(due(readAt("Remind me at 5pm in 3 days to file"))) == "10/11 17:00")
+        check("time: a weekday beside next week", clock(due(readAt("Remind me next week on Wednesday at 3pm"))) == "10/14 15:00")
+        check("time: spans add up", due(readAt("Remind me in an hour and a half")) == thursday.addingTimeInterval(5400)
+                && due(readAt("Remind me in 2 hours and 15 minutes")) == thursday.addingTimeInterval(8100)
+                && due(readAt("Remind me in 1 hour 30 minutes")) == thursday.addingTimeInterval(5400))
+        check("time: spans in words and short units", due(readAt("Remind me in ten minutes")) == thursday.addingTimeInterval(600)
+                && due(readAt("Remind me in 10m")) == thursday.addingTimeInterval(600)
+                && due(readAt("Remind me in 90 seconds")) == thursday.addingTimeInterval(90))
+        check("time: half a day is twelve hours", due(readAt("Remind me in 0.5 days")) == thursday.addingTimeInterval(43_200))
+        check("time: in a month", clock(due(readAt("Remind me in a month"))) == "11/8 9:00")
+        let evening = karachi.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 20, minute: 45))!
+        check("time: at 3 at night is 3 PM tomorrow, never 3 AM", clock(due(readAt("Remind me at 3", evening))) == "10/9 15:00")
+        check("time: at 9 in the evening is 9 tonight", clock(due(readAt("Remind me at 9", evening))) == "10/8 21:00")
+        check("time: at 12 after noon is tomorrow noon", clock(due(readAt("Remind me at 12"))) == "10/8 12:00"
+                && clock(due(readAt("Remind me at 12", evening))) == "10/9 12:00")
+        check("time: a part of the day settles am or pm", clock(due(readAt("Remind me at 7 in the morning"))) == "10/9 7:00"
+                && clock(due(readAt("Remind me at 7 in the evening"))) == "10/8 19:00")
+        check("time: …and is part of the time's words",
+              Reminders.read("Remind me at 7 in the evening", now: thursday, calendar: karachi)?.phrase == "at 7 in the evening")
+        check("time: other ways of writing a time", clock(due(readAt("Remind me @ 10", early))) == "10/8 10:00"
+                && clock(due(readAt("Remind me at 3p"))) == "10/8 15:00"
+                && clock(due(readAt("Remind me at 9.30", evening))) == "10/8 21:30"
+                && clock(due(readAt("Remind me at 09:30", evening))) == "10/9 9:30")
+        check("time: in the evening with no day, once it's begun, is tomorrow's", clock(due(readAt("Remind me in the evening", evening))) == "10/9 18:00")
+        check("time: next weekend", clock(due(readAt("Remind me next weekend"))) == "10/17 9:00")
+        check("time: next week's in the task isn't a day", readAt("Remind me to plan next week's menu") == .noTime)
+        check("time: short weekday names with a time", clock(due(readAt("Remind me Wed at 2pm"))) == "10/14 14:00"
+                && clock(due(readAt("Remind me on Mon at 3pm"))) == "10/12 15:00" && clock(due(readAt("Remind me Sat at 10"))) == "10/10 10:00")
+        check("time: …but not a word that's also a short name", readAt("Remind me to sit in the sun") == .noTime
+                && readAt("Remind me sat down with Ali") == .noTime)
+        check("time: a weekday that's today means next week's", clock(due(readAt("Remind me Thursday"))) == "10/15 9:00")
+        check("time: the 15th", clock(due(readAt("Remind me on the 15th at 3pm"))) == "10/15 15:00"
+                && clock(due(readAt("Remind me on the 1st"))) == "11/1 9:00")
+        check("time: midnight on a day is the end of it", clock(due(readAt("Remind me Friday at midnight"))) == "10/10 0:00")
+        check("time: a lone letter after in isn't a unit", readAt("Remind me to check in AM") == .noTime
+                && readAt("Remind me to swim in 5 m pool") == .noTime
+                && due(readAt("Remind me in 2h")) == thursday.addingTimeInterval(7200))
+        check("time: years and prices aren't times", readAt("Remind me to look at 2026 budget") == .noTime
+                && readAt("Remind me to sell at 12.50") == .noTime && clock(due(readAt("Remind me at 9.30", early))) == "10/8 9:30")
+        check("time: this weekend falls back to Sunday once Saturday's time has gone",
+              clock(due(readAt("Remind me this weekend at 10am", saturdayNoon))) == "10/11 10:00")
+        check("time: an exact time beats a part of the day written first",
+              clock(due(readAt("Remind me Friday in the morning at 10:30"))) == "10/9 10:30")
+        check("time: a span stops before a bigger unit", due(readAt("Remind me in 10 minutes 2 days before the trip")) == thursday.addingTimeInterval(600))
+        check("time: a weekday with a part of the day", clock(due(readAt("Remind me Friday evening"))) == "10/9 18:00"
+                && clock(due(readAt("Remind me Friday night at 11"))) == "10/9 23:00")
+        check("time: \"this\" and short names", clock(due(readAt("Remind me this Wed at 3"))) == "10/14 15:00")
+        check("time: ordinals and caps in the task aren't days", readAt("Remind me to send the 2nd draft") == .noTime
+                && readAt("Remind me to buy sun 30 cream") == .noTime
+                && clock(due(readAt("Remind me to study for the SAT at 9"))) == "10/8 21:00")
+        check("time: at Noon in any case", clock(due(readAt("Remind me at Noon"))) == "10/8 12:00")
+        check("time: short names in lowercase before a time, with a part of the day", clock(due(readAt("Remind me wed at 2pm"))) == "10/14 14:00"
+                && clock(due(readAt("Remind me mon evening"))) == "10/12 18:00" && clock(due(readAt("Remind me Mon morning"))) == "10/12 9:00")
+        check("time: the 15th with a time, without on", clock(due(readAt("Remind me the 15th at 3pm"))) == "10/15 15:00")
+        check("time: at 5-6 starts at 5, and a title doesn't add a part of the day",
+              clock(due(readAt("Remind me at 5-6 to call"))) == "10/8 17:00" && clock(due(readAt("Remind me to watch Friday Night Lights"))) == "10/9 9:00")
+        check("time: spacing inside the time words isn't a change to them",
+              Reminders.read("Remind me at  3pm", now: thursday, calendar: karachi)?.phrase == "at 3pm")
 
         // macOS reads these, always against the real clock.
         let realNow = Date()
@@ -1287,8 +1348,33 @@ enum SelfTests {
         check("time: an absurd span is no time, not a crash",
               readNow("Remind me in 9999999999999999999 weeks") == .noTime && readNow("Remind me in 99999999999999999999 days") == .noTime)
         check("time: the phrase includes a time added to a day",
-              Reminders.read("Remind me next week at 3pm to review")?.phrase == "next week 3pm")
+              Reminders.read("Remind me next week at 3pm to review")?.phrase == "next week at 3pm")
         check("time: no time found", readNow("Remind me to buy milk") == .noTime)
+        // Days from macOS's reader, with a time Wisp reads beside them.
+        check("time: an hour written apart from its day reads the same whenever it's typed",
+              due(readNow("Remind me tomorrow to call John at 10:30")) == here.date(bySettingHour: 10, minute: 30, second: 0, of: tomorrowNine))
+        check("time: tomorrow in the morning", due(readNow("Remind me tomorrow in the morning")) == tomorrowNine)
+        check("time: a time macOS reads with its day", due(readNow("Remind me tomorrow @ 10")) == tomorrowNine.addingTimeInterval(3600)
+                && due(readNow("Remind me tomorrow at lunch")) == tomorrowNine.addingTimeInterval(3 * 3600))
+        check("time: next week in the task doesn't move an earlier day",
+              due(readNow("Remind me tomorrow to book Monday's meeting for next week")) == tomorrowNine)
+        check("time: a stretch already begun is no time", readNow("Remind me until Friday") == .noTime)
+        let nextYear = here.component(.year, from: realNow) + 1
+        let dashed = due(readNow("Remind me \(nextYear)-12-01 at 9"))
+        check("time: a date written with dashes, with a time",
+              dashed.map { here.component(.month, from: $0) == 12 && here.component(.day, from: $0) == 1 && here.component(.hour, from: $0) == 9 } == true)
+        check("time: a page range, a title and a day that owns something aren't times",
+              due(readNow("Remind me to read pages 10-12 tomorrow")) == tomorrowNine
+                && due(readNow("Remind me to watch High Noon tomorrow")) == tomorrowNine
+                && due(readNow("Remind me about Monday's meeting tomorrow")) == tomorrowNine)
+        if here.component(.hour, from: realNow) < 23 {
+            check("time: tonight at 12 is midnight, not noon",
+                  due(readNow("Remind me tonight at 12")) == here.date(byAdding: .day, value: 1, to: here.startOfDay(for: realNow)))
+        }
+        if here.component(.hour, from: realNow) < 22 {
+            check("time: tonight is still ahead until it's over",
+                  due(readNow("Remind me tonight to take the bins out")).map { here.isDate($0, inSameDayAs: realNow) && $0 > realNow } == true)
+        }
         check("time: not a reminder at all", Reminders.read("Buy milk tomorrow") == nil)
 
         // MARK: - Reminders: showing a time
@@ -1304,6 +1390,12 @@ enum SelfTests {
         }
         check("label: today shows the time", shown(on(10, 8, 14, 42)) == "2:42 PM")
         check("label: tomorrow", shown(on(10, 9, 9, 0)) == "Tomorrow 9:00 AM")
+        var japanese = Calendar(identifier: .japanese)
+        japanese.timeZone = gmt.timeZone
+        check("label: a calendar counted in eras shows the era with the year",
+              Reminders.describe(on(1, 5, 9, 0, year: 2027), now: on(10, 8, 11, 16), calendar: japanese, locale: us).contains("Reiwa"))
+        check("label: tomorrow in the Mac's language, like the weekdays",
+              Reminders.describe(on(10, 9, 9, 0), now: on(10, 8, 11, 16), calendar: gmt, locale: Locale(identifier: "de_DE")) == "Morgen 09:00")
         check("label: this week shows the day", shown(on(10, 11, 9, 0)) == "Sun 9:00 AM")
         check("label: further out shows the date", shown(on(10, 20, 9, 0)) == "Oct 20 9:00 AM")
         check("label: another year shows the year", shown(on(1, 5, 9, 0, year: 2027)) == "Jan 5, 2027 9:00 AM")
@@ -1364,9 +1456,10 @@ enum SelfTests {
         check("store: it reads sent after it fires",
               store.label(forLine: edited, now: set1!.fireDate.addingTimeInterval(1)) == .sent(set1!.fireDate))
 
-        store.noteLoaded("Remind me tomorrow to call from my laptop\n")
+        let otherMac = ReminderStore(fileURL: storeFolder.appendingPathComponent("other.json"), scheduler: FakeReminderScheduler())
+        otherMac.loaded("Remind me tomorrow to call from my laptop\n")
         check("store: a line from another Mac isn't set here",
-              store.label(forLine: "Remind me tomorrow to call from my laptop") == .notOnThisMac)
+              otherMac.label(forLine: "Remind me tomorrow to call from my laptop") == .notOnThisMac && otherMac.reminders.isEmpty)
 
         let restarted = ReminderStore(fileURL: storeFile, scheduler: fake)
         check("store: reminders survive a restart", restarted.reminders == store.reminders)
@@ -1425,6 +1518,14 @@ enum SelfTests {
                 && TrailingLabel(full: "a", short: "b", symbol: "bell") == TrailingLabel(full: "a", short: "b", symbol: "bell"))
 
         check("done: a plain line becomes a ticked task", Reminders.ticked("Remind me at 3pm") == "- [x] Remind me at 3pm")
+        let keepInside = LineEditing.replacing(NSRange(location: 2, length: 9), with: "- [x] Remind me", keeping: NSRange(location: 8, length: 0))
+        check("done: a caret inside the ticked line stays on the same text", keepInside.selection == NSRange(location: 14, length: 0))
+        check("done: a task line spaced oddly is still seen as a reminder",
+              Reminders.mightBeReminder("-          [ ]           Remind me tomorrow far" as NSString, NSRange(location: 0, length: 45)))
+        let keepAfter = LineEditing.replacing(NSRange(location: 2, length: 4), with: "- [x] line", keeping: NSRange(location: 9, length: 2))
+        let keepBefore = LineEditing.replacing(NSRange(location: 2, length: 4), with: "- [x] line", keeping: NSRange(location: 1, length: 0))
+        check("done: ticking a line elsewhere leaves the caret on the same text",
+              keepAfter.selection == NSRange(location: 15, length: 2) && keepBefore.selection == NSRange(location: 1, length: 0))
         check("done: a task's box is ticked, nothing else changes",
               Reminders.ticked("  * [ ] Remind me at 3pm") == "  * [x] Remind me at 3pm")
         check("done: a bullet keeps its marker and indent",
@@ -1445,6 +1546,11 @@ enum SelfTests {
         check("lines: non-ASCII lines, and nothing in an empty note",
               ReminderStore.present(["Remind me um 15 Uhr: Café \u{1F680}"], in: "é\nRemind me um 15 Uhr: Café \u{1F680}\n").count == 1
                 && ReminderStore.present(wanted, in: "").isEmpty)
+        let manyWanted = wanted.union((1...20).map { "filler \($0)" })
+        check("lines: the byte search, used for more lines, keeps to whole lines across every break",
+              ReminderStore.present(manyWanted, in: "Remind me at 3pm\r\nx\u{2028}Remind me tomorrow").intersection(wanted) == wanted
+                && ReminderStore.present(manyWanted, in: "- Remind me at 3pm\nRemind me tomorrow too\nxRemind me at 3pm").isEmpty
+                && ReminderStore.present(manyWanted, in: "a\u{2029}Remind me at 3pm\u{0085}b") == ["Remind me at 3pm"])
         let many = Set((0..<150).map { "Remind me in \($0) minutes" })
         check("lines: many at once give the same answer by splitting",
               ReminderStore.present(many, in: (0..<150).filter { $0 % 2 == 0 }.map { "Remind me in \($0) minutes" }.joined(separator: "\n")).count == 75)
@@ -1486,9 +1592,161 @@ enum SelfTests {
         check("review: a filed reminder is never located in the new note",
               review.locate(review.reminder(id: medsSet.id)!, in: meds) == nil)
 
-        review.noteLoaded("Remind me to buy milk\nRemind me yesterday\n")
+        review.loaded("Remind me to buy milk\nRemind me yesterday\n")
         check("review: a synced line with no time still says so, not \"not set on this Mac\"",
               review.label(forLine: "Remind me to buy milk") == .noTime && review.label(forLine: "Remind me yesterday") == .past)
+
+        // Second review: what a reminder says, and keeps, through edits,
+        // syncs, permission changes and macOS.
+        let edits = FakeReminderScheduler()
+        let editStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("edits.json"), scheduler: edits)
+        let callJos = "Remind me in 2 hours to call Jos"
+        let jos = editStore.commit(line: callJos, now: start)!
+        editStore.editing = [callJos + "é": callJos]
+        editStore.reconcile(noteText: callJos + "é", now: start.addingTimeInterval(5))
+        check("second: a save mid-edit doesn't cancel the reminder being edited",
+              editStore.reminder(id: jos.id)?.state == .scheduled && edits.cancelled.isEmpty)
+        check("second: the line being edited shows the reminder it will keep",
+              editStore.label(forLine: callJos + "é", now: start.addingTimeInterval(5)) == .set(jos.fireDate))
+        editStore.editing = [:]
+
+        let ovenAgain = "Remind me in 10 minutes to check the oven again"
+        let ovenFired = editStore.commit(line: ovenAgain, now: start)!
+        let afterFire = ovenFired.fireDate.addingTimeInterval(60)
+        editStore.reconcile(noteText: "", now: afterFire)
+        let undone = editStore.commit(line: ovenAgain, restored: true, now: afterFire.addingTimeInterval(5))
+        check("second: a fired line put back (undo, untick) stays sent, and isn't set again",
+              undone?.id == ovenFired.id && editStore.label(forLine: ovenAgain, now: afterFire.addingTimeInterval(5)) == .sent(ovenFired.fireDate)
+                && edits.scheduled.filter { $0.id == ovenFired.id }.count == 1)
+        editStore.reconcile(noteText: "", now: afterFire.addingTimeInterval(10))
+        let retyped = editStore.commit(line: ovenAgain, now: afterFire.addingTimeInterval(15))
+        check("second: …but typed again, it's a new reminder", retyped != nil && retyped?.id != ovenFired.id)
+
+        let missed = "Remind me in 10 minutes to stretch"
+        let missedSet = editStore.commit(line: missed, now: start)!
+        editStore.reconcile(noteText: "", now: start.addingTimeInterval(60))
+        let lateLine = missed + " now"
+        editStore.commit(line: lateLine, origin: missed, now: missedSet.fireDate.addingTimeInterval(30))
+        check("second: a reminder cancelled before its time, and back after it, says not sent — never sent",
+              editStore.label(forLine: lateLine, now: missedSet.fireDate.addingTimeInterval(30)) == .notSent)
+
+        let plants = "Remind me in 2 hours to water the plants"
+        let syncSet = editStore.commit(line: plants, now: start)!
+        editStore.loaded("an older copy without it", now: start.addingTimeInterval(5))
+        editStore.loaded("an older copy without it\n" + plants, now: start.addingTimeInterval(30))
+        check("second: a line a sync briefly took away keeps its reminder when it comes back",
+              editStore.reminder(id: syncSet.id)?.state == .scheduled
+                && editStore.label(forLine: plants, now: start.addingTimeInterval(30)) == .set(syncSet.fireDate))
+
+        let folders = ReminderStore(fileURL: storeFolder.appendingPathComponent("folders.json"), scheduler: FakeReminderScheduler())
+        let shared = folders.commit(line: "Remind me in 2 hours to check both", now: start)!
+        let leaving = folders.commit(line: "Remind me in 3 hours to check one", now: start)!
+        folders.archive(noteText: "Remind me in 2 hours to check both\nRemind me in 3 hours to check one",
+                        keeping: "Remind me in 2 hours to check both")
+        check("second: switching to a synced note files only the lines it doesn't share",
+              folders.reminder(id: shared.id)?.archived == false && folders.reminder(id: leaving.id)?.archived == true)
+        folders.reconcile(noteText: "Remind me in 2 hours to check both", now: leaving.fireDate.addingTimeInterval(2 * 86_400))
+        check("second: a filed reminder is let go a day after its time", folders.reminder(id: leaving.id) == nil)
+
+        let turnedOff = FakeReminderScheduler()
+        let offStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("off.json"), scheduler: turnedOff)
+        let offLine = "Remind me in 2 hours to call the bank"
+        let offSet = offStore.commit(line: offLine, now: start)!
+        turnedOff.permission = .denied
+        offStore.refreshPermission(now: start.addingTimeInterval(60))
+        check("second: notifications turned off: it says so, and isn't claimed as with macOS",
+              offStore.label(forLine: offLine, now: start.addingTimeInterval(60)) == .notificationsOff
+                && offStore.reminder(id: offSet.id)?.handedOver == false)
+        check("second: …and if its time comes so, it wasn't sent",
+              offStore.label(forLine: offLine, now: offSet.fireDate.addingTimeInterval(5)) == .notSent)
+        turnedOff.permission = .allowed
+        offStore.refreshPermission(now: start.addingTimeInterval(120))
+        check("second: turned back on, it's handed over again",
+              offStore.reminder(id: offSet.id)?.state == .scheduled && turnedOff.scheduled.filter { $0.id == offSet.id }.count == 2)
+
+        let offDeleted = offStore.commit(line: "Remind me in 3 hours to call the bank again", now: start)!
+        turnedOff.permission = .denied
+        offStore.refreshPermission(now: start.addingTimeInterval(200))
+        offStore.reconcile(noteText: "", now: start.addingTimeInterval(210))
+        check("second: a line deleted while notifications were off is taken from macOS too",
+              turnedOff.cancelled.contains(offDeleted.id))
+
+        let slow = FakeReminderScheduler()
+        slow.permission = .notDetermined
+        slow.holdsPrompt = true
+        final class Clock { var now = Date() }
+        let slowClock = Clock()
+        slowClock.now = start
+        let slowStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("slow.json"), scheduler: slow,
+                                      clock: { slowClock.now })
+        let answerLater = slowStore.commit(line: "Remind me in 10 minutes to answer", now: start)!
+        slowClock.now = answerLater.fireDate.addingTimeInterval(60)
+        slow.answerPrompt(true)
+        check("second: a prompt answered after the time came isn't claimed as sent",
+              slowStore.reminder(id: answerLater.id)?.handedOver == false
+                && slowStore.label(forLine: "Remind me in 10 minutes to answer", now: slowClock.now) == .notSent)
+
+        let refusing = FakeReminderScheduler()
+        refusing.refusesSchedule = true
+        let refusedStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("refused.json"), scheduler: refusing)
+        let refused = refusedStore.commit(line: "Remind me in 1 hour to try", now: start)!
+        check("second: one macOS won't take isn't claimed as sent",
+              refusedStore.reminder(id: refused.id)?.handedOver == false
+                && refusedStore.label(forLine: "Remind me in 1 hour to try", now: refused.fireDate.addingTimeInterval(1)) == .notSent)
+
+        let crowded = FakeReminderScheduler()
+        let crowdedStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("crowded.json"), scheduler: crowded)
+        let crowdLines: [String] = (1...70).map { "Remind me in \($0 + 10) minutes to do \($0)" }
+        for line in crowdLines { crowdedStore.commit(line: line, now: start) }
+        let handed: Set<String> = Set(crowded.scheduled.map { $0.id }).subtracting(crowded.cancelled)
+        let heldLines: [String] = crowdedStore.reminders.filter { $0.state == .scheduled }.map { $0.line }.sorted()
+        let soonest: [String] = Array(crowdLines.prefix(ReminderStore.pendingLimit)).sorted()
+        check("second: macOS is given only as many as it keeps — the soonest",
+              handed.count == ReminderStore.pendingLimit && heldLines == soonest)
+        crowdedStore.reconcile(noteText: crowdLines.dropFirst(6).joined(separator: "\n"), now: start.addingTimeInterval(5))
+        let heldAfter = crowdedStore.reminders.filter { $0.state == .scheduled }.count
+        let lastLabel = crowdedStore.label(forLine: crowdLines[69], now: start.addingTimeInterval(5))
+        check("second: …and the next in line as room frees up",
+              heldAfter == ReminderStore.pendingLimit && lastLabel == .set(crowdedStore.reminders.last!.fireDate))
+
+        let lost = FakeReminderScheduler()
+        let lostStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("lost.json"), scheduler: lost)
+        let kept = lostStore.commit(line: "Remind me in 3 hours to stay", now: start)!
+        lost.cancel([kept.id])
+        lost.strays = ["left-from-a-cut-short-removal"]
+        lostStore.refreshPermission()
+        check("second: on a check, what macOS lost is handed back, and what it holds that isn't set is removed",
+              lost.scheduled.filter { $0.id == kept.id }.count == 2 && lost.cancelled.contains("left-from-a-cut-short-removal"))
+
+        let oldFile = storeFolder.appendingPathComponent("old.json")
+        let oldJSON = """
+        [{"id":"A","line":"Remind me in 3 hours to keep","phrase":"in 3 hours","fireDate":\(start.addingTimeInterval(10_800).timeIntervalSinceReferenceDate),"state":"scheduled"},
+         {"id":"B","line":"Remind me later","phrase":"later","fireDate":\(start.addingTimeInterval(10_800).timeIntervalSinceReferenceDate),"state":"snoozed"}]
+        """
+        try? oldJSON.write(to: oldFile, atomically: true, encoding: .utf8)
+        let oldMac = FakeReminderScheduler()
+        oldMac.strays = ["B"]
+        let oldStore = ReminderStore(fileURL: oldFile, scheduler: oldMac)
+        oldStore.refreshPermission()
+        check("second: an older or newer Reminders.json loads what it can, keeps the file aside, and leaves macOS alone",
+              oldStore.reminders.map(\.id) == ["A"]
+                && FileManager.default.fileExists(atPath: storeFolder.appendingPathComponent("old.unreadable.json").path)
+                && !oldMac.cancelled.contains("B"))
+        oldStore.commit(line: "Remind me in 4 hours to save", now: start)
+        let oldMacAgain = FakeReminderScheduler()
+        oldMacAgain.strays = ["B"]
+        let relaunched = ReminderStore(fileURL: oldFile, scheduler: oldMacAgain)
+        relaunched.refreshPermission()
+        check("second: …and keeps leaving it alone on later launches while the copy is kept aside",
+              !oldMacAgain.cancelled.contains("B"))
+
+        let refuser = FakeReminderScheduler()
+        refuser.permission = .notDetermined
+        refuser.grantOnRequest = false
+        let refuserStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("refuser.json"), scheduler: refuser)
+        refuserStore.commit(line: "Remind me in 1 hour to try", now: start)
+        check("second: Don't Allow: the line says notifications are off",
+              refuserStore.label(forLine: "Remind me in 1 hour to try", now: start) == .notificationsOff)
 
         let undecided = FakeReminderScheduler()
         undecided.permission = .notDetermined
@@ -1534,12 +1792,9 @@ enum SelfTests {
 
         // MARK: - Reminders: in the editor
 
-        MarkdownStyler.reminderLabel = { text in Reminders.isReminder(text) ? TrailingLabel(full: "\u{2192} soon", short: "soon") : nil }
         let remStorage = NSTextStorage(string: "Remind me in 10 minutes to check = \n2 + 2 =\n")
         MarkdownStyler.restyle(remStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
-        check("editor: a reminder line carries its grey time",
-              (remStorage.attribute(.wispReminder, at: 33, effectiveRange: nil) as? TrailingLabel)?.full == "\u{2192} soon")
-        check("editor: …and no maths answer, though it ends in =",
+        check("editor: a reminder line gets no maths answer, though it ends in =",
               remStorage.attribute(.wispMathAnswer, at: 33, effectiveRange: nil) == nil
                 && remStorage.attribute(.wispMathAnswer, at: (remStorage.string as NSString).range(of: "2 + 2 =").location + 6, effectiveRange: nil) as? String == "4")
         let remPartial = NSTextStorage(string: "a\nRemind me tomorrow to go\nb\n")
@@ -1555,8 +1810,10 @@ enum SelfTests {
         let typing = FakeReminderScheduler()
         let typingStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("e.json"), scheduler: typing)
         let remView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        let remCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { "" }, set: { _ in }))
+        // The model's text, kept as the view's — as the app's binding keeps it.
+        let remCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { remView.string }, set: { _ in }))
         remCoordinator.reminderStore = typingStore
+        remCoordinator.textView = remView
         remView.delegate = remCoordinator
         remView.textStorage?.delegate = remCoordinator
         for ch in "Remind me in 15 minutes to test" { remView.insertText(String(ch), replacementRange: remView.selectedRange()) }
@@ -1572,7 +1829,7 @@ enum SelfTests {
         // A line from another Mac: Return at its end touches it but
         // doesn't change it, so it stays unset.
         let synced = "Remind me tomorrow to call from the laptop"
-        typingStore.noteLoaded(synced)
+        typingStore.loaded(synced)
         remView.string = synced
         remView.setSelectedRange(NSRange(location: (synced as NSString).length, length: 0))
         remView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
@@ -1584,7 +1841,7 @@ enum SelfTests {
         remCoordinator.observeReminders(in: remView)
         remView.string = ""
         for ch in "Remind me in 2 hours to file this" { remView.insertText(String(ch), replacementRange: remView.selectedRange()) }
-        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
+        remCoordinator.finishEditing()
         check("editor: filing or quitting sets the reminder on the line being written",
               typingStore.reminders.contains { $0.line == "Remind me in 2 hours to file this" })
 
@@ -1593,10 +1850,34 @@ enum SelfTests {
         let original = typingStore.reminders.first { $0.line == setLine }
         remView.setSelectedRange(NSRange(location: (setLine as NSString).length, length: 0))
         for ch in " now" { remView.insertText(String(ch), replacementRange: remView.selectedRange()) }
-        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
+        remCoordinator.finishEditing()
         let afterEdit = original.flatMap { typingStore.reminder(id: $0.id) }
         check("editor: editing a set reminder's words keeps it, and its time",
               afterEdit != nil && afterEdit?.line == setLine + " now" && afterEdit?.fireDate == original?.fireDate)
+
+        // An accent typed with ⌥e (marked text) on a set line.
+        let imeLine = "Remind me in 2 hours to call Jos"
+        remView.string = imeLine
+        remView.setSelectedRange(NSRange(location: (imeLine as NSString).length, length: 0))
+        let imeSet = typingStore.commit(line: imeLine)
+        remView.setMarkedText("\u{00B4}", selectedRange: NSRange(location: 1, length: 0), replacementRange: remView.selectedRange())
+        remView.insertText("\u{00E9}", replacementRange: remView.markedRange())
+        remCoordinator.finishEditing()
+        check("editor: an accent composed on a set line keeps its reminder and time",
+              imeSet != nil && typingStore.reminder(id: imeSet!.id)?.line == imeLine + "\u{00E9}"
+                && typingStore.reminder(id: imeSet!.id)?.fireDate == imeSet?.fireDate)
+
+        // A reminder that went off, deleted, then put back or written again.
+        let goneOff = "Remind me in 10 minutes to stand up"
+        let goneOffSet = typingStore.commit(line: goneOff, now: Date().addingTimeInterval(-1200))!
+        typingStore.reconcile(noteText: "")
+        remView.string = ""
+        for ch in goneOff + "x" { remView.insertText(String(ch), replacementRange: remView.selectedRange()) }
+        remView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        remCoordinator.finishEditing()
+        let rewritten = typingStore.reminders.last { $0.line == goneOff && $0.state != .cancelled }
+        check("editor: a fired reminder written again — ending with Backspace — is set again, not the old one",
+              rewritten != nil && rewritten?.id != goneOffSet.id && rewritten!.fireDate > Date())
 
         // Typing a new line whose text passes through a set line's words.
         let setFirst = "Remind me in 2 hours to file this now"
@@ -1604,10 +1885,22 @@ enum SelfTests {
         remView.setSelectedRange(NSRange(location: (remView.string as NSString).length, length: 0))
         remView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         for ch in setFirst + " too" { remView.insertText(String(ch), replacementRange: remView.selectedRange()) }
-        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
+        remCoordinator.finishEditing()
         check("editor: a new line passing through a set line's words is its own reminder",
               firstReminder != nil && typingStore.reminder(id: firstReminder!.id)?.line == setFirst
                 && typingStore.reminders.contains { $0.line == setFirst + " too" && $0.id != firstReminder?.id })
+
+        // The panel losing focus finishes the line being written.
+        let focusWindow = NSWindow(contentRect: remView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        focusWindow.contentView = remView
+        remView.string = ""
+        for ch in "Remind me in 3 hours to look up" { remView.insertText(String(ch), replacementRange: remView.selectedRange()) }
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: NSWindow())
+        let otherWindowLeft = typingStore.reminders.contains { $0.line == "Remind me in 3 hours to look up" }
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: focusWindow)
+        check("editor: the panel losing focus sets the line being written — another window doesn't",
+              !otherWindowLeft && typingStore.reminders.contains { $0.line == "Remind me in 3 hours to look up" })
+        focusWindow.contentView = nil
 
         // Done on a notification, with the editor open.
         remView.allowsUndo = true
@@ -1615,20 +1908,24 @@ enum SelfTests {
         doneWindow.contentView = remView
         remView.string = "a\nRemind me tomorrow to post\nbcd"
         remView.setSelectedRange(NSRange(location: (remView.string as NSString).length - 1, length: 0))
-        let doneRequest = LineReplacement(range: NSRange(location: 2, length: ("Remind me tomorrow to post" as NSString).length), line: "Remind me tomorrow to post",
-                                          replacement: Reminders.ticked("Remind me tomorrow to post"))
-        NotificationCenter.default.post(name: MinimalTextEditor.replaceLine, object: doneRequest)
+        let postLine = NSRange(location: 2, length: ("Remind me tomorrow to post" as NSString).length)
+        let doneApplied = remCoordinator.replaceLine(postLine, reading: "Remind me tomorrow to post",
+                                                     with: Reminders.ticked("Remind me tomorrow to post"))
         check("editor: Done ticks the line in the editor, and the caret keeps its place",
-              doneRequest.applied && remView.string == "a\n- [x] Remind me tomorrow to post\nbcd"
+              doneApplied && remView.string == "a\n- [x] Remind me tomorrow to post\nbcd"
                 && remView.selectedRange().location == (remView.string as NSString).length - 1)
         remView.undoManager?.undo()
         check("editor: …as one edit that undo takes back", remView.string == "a\nRemind me tomorrow to post\nbcd")
+        let offSync = MinimalTextEditor.Coordinator(text: Binding(get: { "a newer note from disk" }, set: { _ in }))
+        offSync.textView = remView
+        check("editor: Done isn't done on old text the view still shows after a reload",
+              !offSync.replaceLine(postLine, reading: "Remind me tomorrow to post", with: "- [x] Remind me tomorrow to post")
+                && remView.string == "a\nRemind me tomorrow to post\nbcd")
         remView.string = "a\nRemind me tomorrow to post later\nbcd"
-        let staleRequest = LineReplacement(range: NSRange(location: 2, length: ("Remind me tomorrow to post" as NSString).length), line: "Remind me tomorrow to post",
-                                           replacement: "- [x] Remind me tomorrow to post")
-        NotificationCenter.default.post(name: MinimalTextEditor.replaceLine, object: staleRequest)
+        let staleApplied = remCoordinator.replaceLine(postLine, reading: "Remind me tomorrow to post",
+                                                      with: "- [x] Remind me tomorrow to post")
         check("editor: Done leaves a line that has since changed alone",
-              !staleRequest.applied && remView.string == "a\nRemind me tomorrow to post later\nbcd")
+              !staleApplied && remView.string == "a\nRemind me tomorrow to post later\nbcd")
         doneWindow.contentView = nil
         remCoordinator.stopObservingReminders()
 
@@ -1638,18 +1935,18 @@ enum SelfTests {
         tickView.font = MinimalTextEditor.makeFont(face: .charter, size: 16)
         let tickWindow = NSWindow(contentRect: tickView.frame, styleMask: [.titled], backing: .buffered, defer: true)
         tickWindow.contentView = tickView
-        let tickCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { "" }, set: { _ in }))
+        let tickCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { tickView.string }, set: { _ in }))
         tickCoordinator.reminderStore = typingStore
+        tickCoordinator.textView = tickView
         tickView.delegate = tickCoordinator
         tickView.textStorage?.delegate = tickCoordinator
         let sentLine = "Remind me in 1 minute to test"
         tickView.string = sentLine + "\nnext"
-        MarkdownStyler.reminderLabel = { line in
+        CaretTextView.reminderLabel = { line in
             Reminders.isReminder(line)
                 ? TrailingLabel(full: "sent 3:38 PM", short: "sent", symbol: "checkmark.circle", ticksLine: true) : nil
         }
         MarkdownStyler.restyle(tickView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .off)
-        MarkdownStyler.reminderLabel = nil
         tickView.layoutManager!.ensureLayout(for: tickView.textContainer!)
         let firstFragment = tickView.layoutManager!.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
         let tickY = tickView.textContainerOrigin.y + firstFragment.midY
@@ -1671,24 +1968,32 @@ enum SelfTests {
         check("tick: …and the hover goes with it", tickView.toolTip == nil)
         tickView.undoManager?.undo()
         check("tick: …as one edit that undo takes back", tickView.string == sentLine + "\nnext")
-        MarkdownStyler.reminderLabel = { line in
+        CaretTextView.reminderLabel = { line in
             Reminders.isReminder(line) ? TrailingLabel(full: "Tomorrow 9:00 AM", short: "9:00 AM", symbol: "bell") : nil
         }
-        MarkdownStyler.restyle(tickView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .off)
-        MarkdownStyler.reminderLabel = nil
         check("tick: a set reminder's bell isn't clickable",
               !stride(from: 0.0, through: Double(tickView.bounds.width), by: 1)
                 .contains { tickView.reminderTick(at: NSPoint(x: $0, y: tickY)) != nil })
+        CaretTextView.reminderLabel = { line in
+            Reminders.isReminder(line) ? TrailingLabel(full: "sent 3:38 PM", short: "sent", symbol: "checkmark.circle", ticksLine: true) : nil
+        }
+        tickView.string = "```\n" + sentLine + "\n```"
+        MarkdownStyler.restyle(tickView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .off)
+        tickView.layoutManager!.ensureLayout(for: tickView.textContainer!)
+        let fencedY = tickView.textContainerOrigin.y
+            + tickView.layoutManager!.lineFragmentRect(forGlyphAt: 4, effectiveRange: nil).midY
+        check("tick: a reminder line in a code block is code, with no label",
+              !stride(from: 0.0, through: Double(tickView.bounds.width), by: 1)
+                .contains { tickView.reminderTick(at: NSPoint(x: $0, y: fencedY)) != nil })
+        CaretTextView.reminderLabel = nil
         tickWindow.contentView = nil
 
-        // An emoji at the end of a reminder line stays whole.
-        let emojiLine = NSTextStorage(string: "Remind me tomorrow to ship \u{1F680}")
-        MarkdownStyler.restyle(emojiLine, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
-        var emojiRange = NSRange()
-        _ = emojiLine.attribute(.wispReminder, at: (emojiLine.string as NSString).length - 1, effectiveRange: &emojiRange)
-        check("editor: the grey time never splits an emoji at the line's end",
-              emojiRange.location == (emojiLine.string as NSString).length - 2)
-        MarkdownStyler.reminderLabel = nil
+        // A label follows its whole line; a line of spaces has none.
+        let emojiLine = "Remind me tomorrow to ship \u{1F680}  " as NSString
+        check("editor: a label follows the line, trailing spaces and all, and a line of spaces has none",
+              CaretTextView.labelAnchor(of: NSRange(location: 0, length: emojiLine.length), in: emojiLine)
+                == NSRange(location: 0, length: emojiLine.length)
+                && CaretTextView.labelAnchor(of: NSRange(location: 0, length: 3), in: "   " as NSString) == nil)
         try? FileManager.default.removeItem(at: storeFolder)
 
         // MARK: - Summary
@@ -1717,11 +2022,44 @@ final class FakeReminderScheduler: ReminderScheduling {
     private(set) var cancelled: [String] = []
     private(set) var requests = 0
 
-    func schedule(_ reminder: Reminder) { scheduled.append(reminder) }
-    func cancel(_ ids: [String]) { cancelled.append(contentsOf: ids) }
+    /// macOS refusing a hand-off.
+    var refusesSchedule = false
+
+    /// What macOS holds now: added, and not removed since.
+    private var held: [String] = []
+
+    func schedule(_ reminder: Reminder, done: @escaping @Sendable @MainActor (Bool) -> Void) {
+        if !refusesSchedule {
+            scheduled.append(reminder)
+            if !held.contains(reminder.id) { held.append(reminder.id) }
+        }
+        done(!refusesSchedule)
+    }
+    func cancel(_ ids: [String]) {
+        cancelled.append(contentsOf: ids)
+        held.removeAll { ids.contains($0) }
+        strays.removeAll { ids.contains($0) }
+    }
+    func pending(_ done: @escaping @Sendable @MainActor ([String]) -> Void) { done(held + strays) }
+    /// Ids macOS holds that the store never set.
+    var strays: [String] = []
     func currentPermission(_ done: @escaping @Sendable @MainActor (ReminderPermission) -> Void) { done(permission) }
+    /// A prompt left on screen until the test answers it.
+    var holdsPrompt = false
+    private var heldPrompt: (@Sendable @MainActor (Bool) -> Void)?
+
+    func answerPrompt(_ granted: Bool) {
+        permission = granted ? .allowed : .denied
+        heldPrompt?(granted)
+        heldPrompt = nil
+    }
+
     func requestPermission(_ done: @escaping @Sendable @MainActor (Bool) -> Void) {
         requests += 1
+        if holdsPrompt {
+            heldPrompt = done
+            return
+        }
         if !leavesUndecided { permission = grantOnRequest ? .allowed : .denied }
         done(grantOnRequest && !leavesUndecided)
     }

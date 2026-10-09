@@ -170,10 +170,10 @@ final class Updater: ObservableObject {
 
     private func applyAndExit() {
         guard case .pending(let version) = state else { return }
+        // exit(0) skips applicationWillTerminate: save and finish up
+        // first, while this copy of Wisp is still the one installed.
+        beforeExit?()
         if Self.applyPendingUpdateIfPossible() {
-            // exit(0) skips applicationWillTerminate: save and finish
-            // up here instead.
-            beforeExit?()
             exit(0)
         }
         // Couldn't swap the bundle. Say so and point at the download

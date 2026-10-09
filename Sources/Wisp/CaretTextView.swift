@@ -15,6 +15,18 @@ final class CaretTextView: NSTextView {
         didSet { needsDisplay = true }
     }
 
+    /// The note's body font, for reminder labels. Not `font`: that's the
+    /// font of the first character, a heading's if the note opens with one.
+    var labelFont: NSFont? {
+        didSet { needsDisplay = true }
+    }
+
+    /// The grey text for a reminder line, from ReminderStore. Worked out
+    /// as the line is drawn, never stored in the text: a reminder being
+    /// set or sent costs a redraw, not a restyle. Unset (as in most
+    /// tests), reminder lines draw nothing extra.
+    static var reminderLabel: ((String) -> TrailingLabel?)?
+
     // drawBackground, not draw(_:): it's NSTextView's hook for extra
     // drawing and gets the same dirty rect. Overriding draw(_:) itself
     // changed how AppKit treats the view — font substitution ran on a
@@ -56,11 +68,34 @@ final class CaretTextView: NSTextView {
         }
         // A reminder's time stands a little apart, in the body font — the
         // line's last character may be an emoji or a code span.
-        storage.enumerateAttribute(.wispReminder, in: chars) { value, range, _ in
-            guard let label = value as? TrailingLabel, range.length > 0,
-                  let (place, symbol) = reminderPlacement(label, after: range) else { return }
-            draw(place, symbol: symbol, font: bodyFont, strong: hoveredTick == NSMaxRange(range))
+        for (anchor, label) in reminderLabels(in: chars) {
+            guard let (place, symbol) = reminderPlacement(label, after: anchor) else { continue }
+            draw(place, symbol: symbol, font: bodyFont, strong: hoveredTick == NSMaxRange(anchor))
         }
+    }
+
+    /// Each reminder line touching `range`, with its label and the run the
+    /// label follows. Lines in a code block are code, not reminders.
+    private func reminderLabels(in range: NSRange) -> [(anchor: NSRange, label: TrailingLabel)] {
+        guard let hook = Self.reminderLabel, let storage = textStorage else { return [] }
+        let ns = storage.string as NSString
+        var found: [(NSRange, TrailingLabel)] = []
+        ns.enumerateSubstrings(in: ns.lineRange(for: range), options: [.byLines, .substringNotRequired]) { _, line, _, _ in
+            guard Reminders.mightBeReminder(ns, line),
+                  storage.attribute(.wispCodeBlock, at: line.location, effectiveRange: nil) == nil,
+                  let anchor = Self.labelAnchor(of: line, in: ns),
+                  let label = hook(ns.substring(with: line)) else { return }
+            found.append((anchor, label))
+        }
+        return found
+    }
+
+    /// What a label follows: the line, trailing spaces and all. Nil for a
+    /// line of only spaces, which has no text to follow.
+    static func labelAnchor(of line: NSRange, in ns: NSString) -> NSRange? {
+        var end = NSMaxRange(line)
+        while end > line.location, ns.character(at: end - 1) == 0x20 || ns.character(at: end - 1) == 0x09 { end -= 1 }
+        return end > line.location ? line : nil
     }
 
     /// Where trailing text lands: the text chosen, where it starts, and
@@ -85,7 +120,9 @@ final class CaretTextView: NSTextView {
         return placement(candidates, symbol: symbol, fitting: true, after: range, font: bodyFont).map { ($0, symbol) }
     }
 
-    private var symbolCache: (key: String, image: NSImage)?
+    /// One image per symbol and look: a screen of bells and ticks would
+    /// otherwise rebuild them on every redraw.
+    private var symbolCache: [String: NSImage] = [:]
 
     /// An SF Symbol at the text's size, in the answer colour without its
     /// transparency — that's applied once, when drawing; in the colour
@@ -93,16 +130,17 @@ final class CaretTextView: NSTextView {
     /// the time beside it.
     private func symbolImage(_ name: String, font: NSFont) -> NSImage? {
         let key = "\(name) \(font.pointSize) \(answerColor)"
-        if let cached = symbolCache, cached.key == key { return cached.image }
+        if let cached = symbolCache[key] { return cached }
         let config = NSImage.SymbolConfiguration(pointSize: font.pointSize * 0.8, weight: .regular)
             .applying(NSImage.SymbolConfiguration(paletteColors: [answerColor.withAlphaComponent(1)]))
         guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(config) else { return nil }
-        symbolCache = (key, image)
+        if symbolCache.count > 8 { symbolCache = [:] }
+        symbolCache[key] = image
         return image
     }
 
-    private var bodyFont: NSFont { font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize) }
+    private var bodyFont: NSFont { labelFont ?? font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize) }
 
     /// Text placed just past the end of `range`, on its baseline: a lead
     /// of spaces, `symbol` if any, then the text. With `fitting`, the
@@ -159,8 +197,15 @@ final class CaretTextView: NSTextView {
     private var hoveredTick: Int? {
         didSet {
             guard hoveredTick != oldValue else { return }
-            needsDisplay = true
             toolTip = hoveredTick == nil ? nil : "Mark done"
+        }
+    }
+    /// Where the hovered tick's label is drawn, to repaint just that.
+    private var hoveredRect: NSRect? {
+        didSet {
+            guard hoveredRect != oldValue else { return }
+            if let oldValue { setNeedsDisplay(oldValue) }
+            if let hoveredRect { setNeedsDisplay(hoveredRect) }
         }
     }
 
@@ -172,7 +217,7 @@ final class CaretTextView: NSTextView {
         tickHit(at: point)?.line
     }
 
-    private func tickHit(at point: NSPoint) -> (line: NSRange, labelEnd: Int)? {
+    private func tickHit(at point: NSPoint) -> (line: NSRange, labelEnd: Int, rect: NSRect)? {
         guard let layoutManager, let container = textContainer, let storage = textStorage,
               storage.length > 0, layoutManager.numberOfGlyphs > 0 else { return nil }
         let origin = textContainerOrigin
@@ -181,15 +226,13 @@ final class CaretTextView: NSTextView {
         let index = min(layoutManager.characterIndexForGlyph(at: glyph), ns.length - 1)
         var start = 0, end = 0, contentsEnd = 0
         ns.getLineStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: index, length: 0))
-        var hit: (NSRange, Int)?
-        storage.enumerateAttribute(.wispReminder, in: NSRange(location: start, length: end - start)) { value, range, stop in
-            guard let label = value as? TrailingLabel, label.ticksLine, range.length > 0,
-                  let rect = reminderPlacement(label, after: range)?.0.symbolRect,
-                  rect.insetBy(dx: -4, dy: -4).contains(point) else { return }
-            hit = (NSRange(location: start, length: contentsEnd - start), NSMaxRange(range))
-            stop.pointee = true
+        for (anchor, label) in reminderLabels(in: NSRange(location: start, length: contentsEnd - start)) where label.ticksLine {
+            guard let place = reminderPlacement(label, after: anchor)?.0, let symbol = place.symbolRect,
+                  symbol.insetBy(dx: -4, dy: -4).contains(point) else { continue }
+            let whole = symbol.union(NSRect(origin: place.textOrigin, size: NSSize(width: visibleRect.maxX - place.textOrigin.x, height: symbol.height)))
+            return (NSRange(location: start, length: contentsEnd - start), NSMaxRange(anchor), whole.insetBy(dx: -4, dy: -4))
         }
-        return hit
+        return nil
     }
 
     override func updateTrackingAreas() {
@@ -207,17 +250,21 @@ final class CaretTextView: NSTextView {
     // move: over a tick, the pointing hand wins.
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        hoveredTick = tickHit(at: convert(event.locationInWindow, from: nil))?.labelEnd
-        if hoveredTick != nil { NSCursor.pointingHand.set() }
+        let hit = tickHit(at: convert(event.locationInWindow, from: nil))
+        hoveredTick = hit?.labelEnd
+        hoveredRect = hit?.rect
+        if hit != nil { NSCursor.pointingHand.set() }
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         hoveredTick = nil
+        hoveredRect = nil
     }
 
     override func didChangeText() {
         hoveredTick = nil
+        hoveredRect = nil
         super.didChangeText()
     }
 
@@ -269,4 +316,14 @@ final class CaretTextView: NSTextView {
         guard height < rect.height else { return rect }
         return NSRect(x: rect.minX, y: rect.maxY - height, width: rect.width, height: height)
     }
+}
+
+/// A reminder's grey text, with a shorter form for when the full one
+/// won't fit beside a long line, and the SF Symbol drawn before it, if
+/// any — one that ticks the line when clicked, with `ticksLine`.
+struct TrailingLabel: Equatable {
+    let full: String
+    let short: String
+    var symbol: String? = nil
+    var ticksLine = false
 }

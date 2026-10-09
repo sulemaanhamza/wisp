@@ -127,6 +127,8 @@ final class EditorModel: ObservableObject {
     /// already in use system-wide). Default is a no-op so this is
     /// always callable.
     var tryUpdateHotKey: @MainActor (HotKey) -> String? = { _ in nil }
+    /// The editor showing the note, once there is one.
+    weak var editor: NoteEditor?
 
     private static let placeholders = [
         "What's on your mind?",
@@ -297,8 +299,7 @@ final class EditorModel: ObservableObject {
             lastLoadedMTime = Self.fileMTime(at: url)
             // A line ticked or deleted while Wisp wasn't running cancels
             // its reminder now, not on the next local edit.
-            ReminderStore.shared.reconcile(noteText: loaded)
-            ReminderStore.shared.noteLoaded(loaded)
+            ReminderStore.shared.loaded(loaded)
         } else {
             // Nothing readable. In a sync folder that usually means
             // iCloud is still holding the file in the cloud — ask for
@@ -391,8 +392,7 @@ final class EditorModel: ObservableObject {
         lastLoadedMTime = mtime
         // A line deleted on another Mac cancels its reminder here; a
         // reminder line written there is never set here.
-        ReminderStore.shared.reconcile(noteText: loaded)
-        ReminderStore.shared.noteLoaded(loaded)
+        ReminderStore.shared.loaded(loaded)
     }
 
     /// Replace the in-memory text with a freshly chosen content (e.g.,
@@ -402,15 +402,14 @@ final class EditorModel: ObservableObject {
     func adoptLoadedText(_ newText: String) {
         // "Use Existing" sets this note aside for a synced one — moved to
         // a backup, not deleted — so its reminders keep firing, as when
-        // filed to the Inbox.
-        if newText != text { ReminderStore.shared.archive(noteText: text) }
+        // filed to the Inbox. Lines the synced note shares stay set.
+        if newText != text { ReminderStore.shared.archive(noteText: text, keeping: newText) }
         isReloading = true
         text = newText
         isReloading = false
         lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
-        ReminderStore.shared.reconcile(noteText: newText)
-        ReminderStore.shared.noteLoaded(newText)
+        ReminderStore.shared.loaded(newText)
     }
 
     nonisolated private static func fileMTime(at url: URL) -> Date? {
@@ -453,7 +452,7 @@ final class EditorModel: ObservableObject {
         Snapshots.recordCheckpoint(text: current)
         // Reminders filed with the note keep firing — including one on
         // the line being written, so finish that first.
-        NotificationCenter.default.post(name: MinimalTextEditor.finishEditing, object: nil)
+        editor?.finishEditing()
         ReminderStore.shared.archive(noteText: text)
         text = ""
         saveNow()
@@ -495,26 +494,26 @@ final class EditorModel: ObservableObject {
         if resolved != theme { theme = resolved }
     }
 
-    /// Scroll to a clicked reminder's line and highlight it once. Does
-    /// nothing when the line is gone — filed to the Inbox, or deleted.
     /// The notification's Done button: tick the reminder's line off.
     /// Through the editor when there is one, so it's one undoable edit
     /// and the caret stays put; otherwise straight into the note. Saved
     /// at once — Wisp may be in the background, and nothing else will
     /// prompt a save soon.
     func markReminderDone(id: String) {
+        // The panel may have been closed for hours: pick up anything
+        // another Mac or editor wrote since, or saving would undo it.
+        reloadFromDiskIfChanged()
         guard let reminder = ReminderStore.shared.reminder(id: id),
               let range = ReminderStore.shared.locate(reminder, in: text) else { return }
-        let request = LineReplacement(
-            range: range, line: reminder.line, replacement: Reminders.ticked(reminder.line)
-        )
-        NotificationCenter.default.post(name: MinimalTextEditor.replaceLine, object: request)
-        if !request.applied {
-            text = (text as NSString).replacingCharacters(in: range, with: request.replacement)
+        let ticked = Reminders.ticked(reminder.line)
+        if editor?.replaceLine(range, reading: reminder.line, with: ticked) != true {
+            text = (text as NSString).replacingCharacters(in: range, with: ticked)
         }
         saveNow()
     }
 
+    /// Scroll to a clicked reminder's line and highlight it once. Does
+    /// nothing when the line is gone — filed to the Inbox, or deleted.
     func showReminder(id: String) {
         guard let reminder = ReminderStore.shared.reminder(id: id),
               let range = ReminderStore.shared.locate(reminder, in: text) else { return }
@@ -690,7 +689,8 @@ struct EditorView: View {
                         fontSize: model.fontSize,
                         fontFace: model.fontFace,
                         theme: model.theme,
-                        transparency: model.effectiveTransparency
+                        transparency: model.effectiveTransparency,
+                        connect: { model.editor = $0 }
                     )
                     .padding(.horizontal, 24)
                     .padding(.top, model.headings.isEmpty ? 24 : 4)
