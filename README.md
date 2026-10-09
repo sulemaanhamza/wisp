@@ -2,6 +2,8 @@
 
 A dead-simple macOS scratchpad. ⌥Space to summon, type, Esc to dismiss.
 
+**[Website](https://sulemaanhamza.github.io/wisp-landing/)** · [Download](https://github.com/sulemaanhamza/wisp/releases/latest) · [Changelog](CHANGELOG.md) · [Buy me a coffee](https://buymeacoffee.com/sulemanhamza)
+
 [![CI](https://github.com/sulemaanhamza/wisp/actions/workflows/ci.yml/badge.svg)](https://github.com/sulemaanhamza/wisp/actions/workflows/ci.yml)
 
 <p align="center">
@@ -81,6 +83,11 @@ swift run Wisp --test
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how Wisp is built and what
 gets merged, and [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits
 together. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Support
+
+Wisp is free and always will be. If it's earned a place in your day,
+you can [buy me a coffee](https://buymeacoffee.com/sulemanhamza).
 
 ## License
 
