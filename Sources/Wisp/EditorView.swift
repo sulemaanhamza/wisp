@@ -109,6 +109,9 @@ final class EditorModel: ObservableObject {
     /// pattern as scrollToken/scrollTarget. A zero-length range clears.
     @Published var findHighlightToken: Int = 0
     private(set) var findHighlightRange = NSRange(location: 0, length: 0)
+    /// A clicked reminder's line, to scroll to and highlight once.
+    @Published private(set) var reminderFlashToken: Int = 0
+    private(set) var reminderFlashRange = NSRange(location: 0, length: 0)
     private var findMatches: [NSRange] = []
     private var findIndex = 0
     @Published var hotKey: HotKey = .default {
@@ -124,6 +127,8 @@ final class EditorModel: ObservableObject {
     /// already in use system-wide). Default is a no-op so this is
     /// always callable.
     var tryUpdateHotKey: @MainActor (HotKey) -> String? = { _ in nil }
+    /// The editor showing the note, once there is one.
+    weak var editor: NoteEditor?
 
     private static let placeholders = [
         "What's on your mind?",
@@ -292,6 +297,9 @@ final class EditorModel: ObservableObject {
             text = loaded
             lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
+            // A line ticked or deleted while Wisp wasn't running cancels
+            // its reminder now, not on the next local edit.
+            ReminderStore.shared.loaded(loaded)
         } else {
             // Nothing readable. In a sync folder that usually means
             // iCloud is still holding the file in the cloud — ask for
@@ -382,6 +390,9 @@ final class EditorModel: ObservableObject {
         }
         lastSavedText = loaded
         lastLoadedMTime = mtime
+        // A line deleted on another Mac cancels its reminder here; a
+        // reminder line written there is never set here.
+        ReminderStore.shared.loaded(loaded)
     }
 
     /// Replace the in-memory text with a freshly chosen content (e.g.,
@@ -389,11 +400,16 @@ final class EditorModel: ObservableObject {
     /// scratchpad). Suppresses the auto-save that would otherwise fire
     /// from `text.didSet`, so we don't bounce-write what we just read.
     func adoptLoadedText(_ newText: String) {
+        // "Use Existing" sets this note aside for a synced one — moved to
+        // a backup, not deleted — so its reminders keep firing, as when
+        // filed to the Inbox. Lines the synced note shares stay set.
+        if newText != text { ReminderStore.shared.archive(noteText: text, keeping: newText) }
         isReloading = true
         text = newText
         isReloading = false
         lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
+        ReminderStore.shared.loaded(newText)
     }
 
     nonisolated private static func fileMTime(at url: URL) -> Date? {
@@ -434,6 +450,10 @@ final class EditorModel: ObservableObject {
         // The archived copy also goes to history, so an accidental
         // archive is recoverable from the same place as everything else.
         Snapshots.recordCheckpoint(text: current)
+        // Reminders filed with the note keep firing — including one on
+        // the line being written, so finish that first.
+        editor?.finishEditing()
+        ReminderStore.shared.archive(noteText: text)
         text = ""
         saveNow()
         requestFocus()
@@ -472,6 +492,33 @@ final class EditorModel: ObservableObject {
         guard themePreference == .system else { return }
         let resolved = themePreference.resolve()
         if resolved != theme { theme = resolved }
+    }
+
+    /// The notification's Done button: tick the reminder's line off.
+    /// Through the editor when there is one, so it's one undoable edit
+    /// and the caret stays put; otherwise straight into the note. Saved
+    /// at once — Wisp may be in the background, and nothing else will
+    /// prompt a save soon.
+    func markReminderDone(id: String) {
+        // The panel may have been closed for hours: pick up anything
+        // another Mac or editor wrote since, or saving would undo it.
+        reloadFromDiskIfChanged()
+        guard let reminder = ReminderStore.shared.reminder(id: id),
+              let range = ReminderStore.shared.locate(reminder, in: text) else { return }
+        let ticked = Reminders.ticked(reminder.line)
+        if editor?.replaceLine(range, reading: reminder.line, with: ticked) != true {
+            text = (text as NSString).replacingCharacters(in: range, with: ticked)
+        }
+        saveNow()
+    }
+
+    /// Scroll to a clicked reminder's line and highlight it once. Does
+    /// nothing when the line is gone — filed to the Inbox, or deleted.
+    func showReminder(id: String) {
+        guard let reminder = ReminderStore.shared.reminder(id: id),
+              let range = ReminderStore.shared.locate(reminder, in: text) else { return }
+        reminderFlashRange = range
+        reminderFlashToken &+= 1
     }
 
     func jumpTo(_ heading: Heading) {
@@ -590,6 +637,10 @@ final class EditorModel: ObservableObject {
             // it with the stale copy on disk.
             saveFailed = true
         }
+        // Even if the write failed: a reminder whose line was deleted,
+        // ticked or changed is cancelled; one that comes back soon after
+        // is revived.
+        ReminderStore.shared.reconcile(noteText: newText)
     }
 
     private func scheduleSave() {
@@ -633,10 +684,13 @@ struct EditorView: View {
                         scrollTarget: model.scrollTarget,
                         findHighlightToken: model.findHighlightToken,
                         findHighlightRange: model.findHighlightRange,
+                        reminderFlashToken: model.reminderFlashToken,
+                        reminderFlashRange: model.reminderFlashRange,
                         fontSize: model.fontSize,
                         fontFace: model.fontFace,
                         theme: model.theme,
-                        transparency: model.effectiveTransparency
+                        transparency: model.effectiveTransparency,
+                        connect: { model.editor = $0 }
                     )
                     .padding(.horizontal, 24)
                     .padding(.top, model.headings.isEmpty ? 24 : 4)

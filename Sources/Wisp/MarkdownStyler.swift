@@ -134,7 +134,11 @@ enum MarkdownStyler {
                 continue
             }
 
-            styleAnswer(content, storage: storage, ns: ns)
+            // A reminder line's grey text is its time (drawn by
+            // CaretTextView); it never also gets a maths answer.
+            if !(Reminders.mightBeReminder(ns, content) && Reminders.isReminder(ns.substring(with: content))) {
+                styleAnswer(content, storage: storage, ns: ns)
+            }
 
             let first = ns.character(at: content.location)
             if first == 0x23,  // #

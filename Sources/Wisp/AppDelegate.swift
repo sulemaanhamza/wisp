@@ -1,13 +1,41 @@
 import AppKit
 import Carbon.HIToolbox
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, UNUserNotificationCenterDelegate {
     let model = EditorModel()
     let updater = Updater()
     private var menuBarController: MenuBarController?
     private var panelController: PanelController?
     private let hotKey = HotKeyMonitor()
+    /// A reminder clicked before the panel existed — the click that
+    /// launched Wisp. Opened once launching finishes.
+    private var pendingReminderID: String?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Set before launching finishes, or a click that launched Wisp
+        // never arrives (seen in the spike). Only in a real app bundle:
+        // anywhere else, merely asking for the center kills the process.
+        if SystemReminderScheduler.isAppBundle {
+            UNUserNotificationCenter.current().delegate = self
+        }
+        SystemReminderScheduler.registerActions()
+        CaretTextView.reminderLabel = { line in
+            ReminderStore.shared.label(forLine: line).map {
+                TrailingLabel(full: $0.text(), short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine)
+            }
+        }
+        updater.beforeExit = { [weak self] in self?.prepareToExit() }
+        let timeChanged: @Sendable (Notification) -> Void = { _ in
+            MainActor.assumeIsolated { ReminderStore.shared.timeChanged() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main, using: timeChanged
+        )
+        NotificationCenter.default.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: .main, using: timeChanged)
+        NotificationCenter.default.addObserver(forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main, using: timeChanged)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.make(target: self)
@@ -94,6 +122,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if LaunchSource.isUserInitiated(launchUserInfo: notification.userInfo) {
             presentForUserAction()
         }
+        // A reminder left waiting on an unanswered prompt asks again.
+        ReminderStore.shared.refreshPermission(askIfUndecided: true)
+        if let id = pendingReminderID {
+            pendingReminderID = nil
+            openReminder(id: id)
+        }
+    }
+
+    // MARK: Reminders
+
+    /// A reminder's notification was clicked: open the panel on its line.
+    private func openReminder(id: String) {
+        guard panelController != nil else {
+            pendingReminderID = id
+            return
+        }
+        presentForUserAction()
+        model.showReminder(id: id)
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let id = response.notification.request.identifier
+        let done = response.actionIdentifier == SystemReminderScheduler.doneAction
+        completionHandler()
+        Task { @MainActor in
+            // Done ticks the line and leaves Wisp where it was; the
+            // notification itself opens Wisp on the line.
+            if done {
+                self.model.markReminderDone(id: id)
+            } else {
+                self.openReminder(id: id)
+            }
+        }
+    }
+
+    /// Due while Wisp is running: still shown as a banner, and its line
+    /// now reads "sent".
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+        Task { @MainActor in ReminderStore.shared.changed() }
     }
 
     /// Re-launching the app while it's already running (Spotlight,
@@ -181,9 +257,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Flush any pending debounced save so quitting never loses the
-        // last few keystrokes.
+        prepareToExit()
+    }
+
+    /// Everything that must happen before Wisp goes — quitting, or
+    /// restarting into an update, which exits without terminating:
+    /// finish the line being written (setting its reminder), flush the
+    /// pending save, and give macOS a moment to take any reminder just
+    /// handed over.
+    private func prepareToExit() {
+        model.editor?.finishEditing()
         model.flushSave()
+        ReminderStore.shared.flush()
     }
 
     /// Open an NSOpenPanel for the user to pick a folder. If the

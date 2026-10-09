@@ -32,6 +32,9 @@ final class Updater: ObservableObject {
     private let owner = "sulemaanhamza"
     private let repo = "wisp"
     private var lastCheckedAt: Date?
+    /// Set by AppDelegate: what quitting would do, run before an update
+    /// restarts Wisp.
+    var beforeExit: (@MainActor () -> Void)?
     /// Set when the user clicks "Update & Restart" while still in
     /// `.available`. Drives an automatic apply+exit the moment download
     /// completes, so the user only has to click once.
@@ -167,6 +170,9 @@ final class Updater: ObservableObject {
 
     private func applyAndExit() {
         guard case .pending(let version) = state else { return }
+        // exit(0) skips applicationWillTerminate: save and finish up
+        // first, while this copy of Wisp is still the one installed.
+        beforeExit?()
         if Self.applyPendingUpdateIfPossible() {
             exit(0)
         }
