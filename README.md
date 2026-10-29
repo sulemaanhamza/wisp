@@ -60,6 +60,7 @@ Rather not use Terminal? Open Wisp once and dismiss the warning, then go to **Sy
 - **Sync across Macs** — point at any folder via the right-click menu (iCloud Drive, Dropbox, Syncthing all work)
 - **On your iPhone** — keep the folder in iCloud Drive and open `scratchpad.md` in the Files app or any markdown editor
 - **Multiple displays** — optionally opens on whichever screen the pointer is on
+- **Recenter** — ⌃⌘C puts the panel back where it first opens, at the size you left it
 
 Click the `?` in the footer for the full keyboard shortcut list.
 

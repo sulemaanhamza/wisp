@@ -205,6 +205,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         model.openFind()
     }
 
+    @objc func recenterPanel(_ sender: Any?) {
+        panelController?.openIfNeeded()
+        panelController?.recenter()
+    }
+
     @objc func setSmallFont(_ sender: Any?) { model.fontSize = .small }
     @objc func setMediumFont(_ sender: Any?) { model.fontSize = .medium }
     @objc func setLargeFont(_ sender: Any?) { model.fontSize = .large }

@@ -30,6 +30,7 @@ enum HelpContent {
                 Row(what: "Find", how: ["⌘F"], kind: .keys),
                 Row(what: "Next or previous match", how: ["↵", "⇧↵"], kind: .keys),
                 Row(what: "File in the Inbox, start fresh", how: ["⇧⌘↩"], kind: .keys),
+                Row(what: "Center on this display", how: ["⌃⌘C"], kind: .keys),
                 Row(what: "Quit", how: ["⌘Q"], kind: .keys),
             ]),
             Section(title: "Editing", rows: [

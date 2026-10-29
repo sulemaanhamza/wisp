@@ -2,6 +2,12 @@
 
 Notable changes to Wisp. Newest first.
 
+## Unreleased
+
+### Added
+
+- **⌃⌘C centers the panel** where Wisp first opens, at the size you left it. Handy after dragging it somewhere awkward; the new spot is remembered.
+
 ## 0.1.46 — 2026-10-09
 
 ### Added

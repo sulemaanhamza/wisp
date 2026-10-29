@@ -147,6 +147,15 @@ enum MainMenuBuilder {
             item.target = target
             viewMenu.addItem(item)
         }
+        viewMenu.addItem(NSMenuItem.separator())
+        let centerItem = NSMenuItem(
+            title: "Center on Screen",
+            action: #selector(AppDelegate.recenterPanel(_:)),
+            keyEquivalent: "c"
+        )
+        centerItem.keyEquivalentModifierMask = [.command, .control]
+        centerItem.target = target
+        viewMenu.addItem(centerItem)
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
