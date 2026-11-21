@@ -86,6 +86,11 @@ final class EditorModel: ObservableObject {
     /// so the user is never told everything is fine while nothing is
     /// actually being saved.
     @Published private(set) var saveFailed: Bool = false
+    /// True while the note can't be read — a drive not mounted yet, a
+    /// file iCloud hasn't brought down, text in another encoding. Until
+    /// it can, nothing is written: an empty editor saved over a note that
+    /// merely hadn't loaded is how the whole note was lost.
+    @Published private(set) var noteUnavailable: Bool = false
 
     // MARK: Find
     @Published var showFind: Bool = false
@@ -293,17 +298,21 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
         }
         let url = StorageLocation.currentURL
-        if let loaded = try? String(contentsOf: url, encoding: .utf8) {
+        switch Self.readNote(at: url) {
+        case .loaded(let loaded):
             text = loaded
             lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
             // A line ticked or deleted while Wisp wasn't running cancels
             // its reminder now, not on the next local edit.
             ReminderStore.shared.loaded(loaded)
-        } else {
-            // Nothing readable. In a sync folder that usually means
-            // iCloud is still holding the file in the cloud — ask for
-            // it now and pick it up on a later panel open.
+        case .fresh:
+            break
+        case .unavailable:
+            // In a sync folder this usually means iCloud is still holding
+            // the file in the cloud — ask for it now and pick it up on a
+            // later panel open.
+            noteUnavailable = true
             StorageLocation.startDownloadIfPlaceholder()
         }
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
@@ -341,6 +350,50 @@ final class EditorModel: ObservableObject {
         case reload
     }
 
+    /// What reading the note at launch found.
+    enum NoteRead: Equatable {
+        case loaded(String)
+        /// No note yet, in a folder that's there to hold one.
+        case fresh
+        /// There is, or may be, a note that can't be read right now.
+        case unavailable
+    }
+
+    /// Tells "no note yet" from "a note we can't get at". Only the first
+    /// may be treated as empty.
+    nonisolated static func readNote(
+        at url: URL, ownFolder: URL = StorageLocation.defaultFolder
+    ) -> NoteRead {
+        if let text = try? String(contentsOf: url, encoding: .utf8) { return .loaded(text) }
+        let fm = FileManager.default
+        let folder = url.deletingLastPathComponent()
+        if fm.fileExists(atPath: url.path) { return .unavailable }
+        if StorageLocation.hasUndownloadedScratchpad(in: folder) { return .unavailable }
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            return .fresh
+        }
+        // A missing folder is a first launch if it's Wisp's own; any
+        // other is a drive or a sync folder that isn't there yet.
+        return folder.standardizedFileURL.path == ownFolder.standardizedFileURL.path ? .fresh : .unavailable
+    }
+
+    /// The note once it can be read again, with whatever was typed while
+    /// it couldn't after it, on lines of its own.
+    nonisolated static func merged(disk: String, typed: String) -> String {
+        if typed.isEmpty { return disk }
+        if disk.isEmpty { return typed }
+        return disk + (disk.hasSuffix("\n") ? "" : "\n") + typed
+    }
+
+    /// Has the file been written by someone else since Wisp last read
+    /// or wrote it?
+    nonisolated static func diskMovedOn(fileMTime: Date?, lastLoadedMTime: Date?) -> Bool {
+        guard let fileMTime else { return false }
+        guard let lastLoadedMTime else { return true }
+        return fileMTime > lastLoadedMTime
+    }
+
     nonisolated static func decideReload(
         fileMTime: Date,
         lastLoadedMTime: Date?,
@@ -364,6 +417,10 @@ final class EditorModel: ObservableObject {
     /// — kept intentionally simple).
     func reloadFromDiskIfChanged() {
         let url = StorageLocation.currentURL
+        if noteUnavailable {
+            recoverNote(at: url)
+            return
+        }
         guard let mtime = Self.fileMTime(at: url) else {
             StorageLocation.startDownloadIfPlaceholder()
             return
@@ -377,7 +434,8 @@ final class EditorModel: ObservableObject {
         case .skipNotNewer:
             return
         case .skipUnsavedEdits:
-            lastLoadedMTime = mtime
+            // lastLoadedMTime stays put, so the save that follows still
+            // sees the file moved on and keeps that version in history.
             return
         case .reload:
             break
@@ -395,6 +453,28 @@ final class EditorModel: ObservableObject {
         ReminderStore.shared.loaded(loaded)
     }
 
+    /// The note couldn't be read at launch; try again. When it can, it
+    /// comes back whole, followed by anything typed in the meantime.
+    private func recoverNote(at url: URL) {
+        switch Self.readNote(at: url) {
+        case .unavailable:
+            StorageLocation.startDownloadIfPlaceholder()
+        case .fresh:
+            noteUnavailable = false
+            saveNow()
+        case .loaded(let disk):
+            let combined = Self.merged(disk: disk, typed: text)
+            isReloading = true
+            text = combined
+            isReloading = false
+            lastSavedText = disk
+            lastLoadedMTime = Self.fileMTime(at: url)
+            noteUnavailable = false
+            ReminderStore.shared.loaded(disk)
+            saveNow()
+        }
+    }
+
     /// Replace the in-memory text with a freshly chosen content (e.g.,
     /// after switching to a folder that already contained a synced
     /// scratchpad). Suppresses the auto-save that would otherwise fire
@@ -409,6 +489,7 @@ final class EditorModel: ObservableObject {
         isReloading = false
         lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
+        noteUnavailable = false
         ReminderStore.shared.loaded(newText)
     }
 
@@ -440,7 +521,7 @@ final class EditorModel: ObservableObject {
     @discardableResult
     func archiveToInbox() -> Bool {
         let current = text
-        guard Inbox.isWorthArchiving(current) else { return false }
+        guard !noteUnavailable, Inbox.isWorthArchiving(current) else { return false }
         do {
             try Inbox.archive(text: current)
         } catch {
@@ -620,9 +701,10 @@ final class EditorModel: ObservableObject {
     func saveNow() {
         saveTask?.cancel()
         saveTask = nil
-        guard didLoad else { return }
+        guard didLoad, !noteUnavailable else { return }
         let newText = text
         guard newText != lastSavedText || saveFailed else { return }
+        keepOthersChanges(replacedBy: newText)
         // The old version goes to history first, while it still exists
         // on disk — this is the accidental select-all-and-type case.
         Snapshots.recordOnSave(old: lastSavedText, new: newText)
@@ -643,6 +725,18 @@ final class EditorModel: ObservableObject {
         ReminderStore.shared.reconcile(noteText: newText)
     }
 
+    /// Wisp reads the file when the panel opens, not while it's open. If
+    /// another Mac or another editor has written it since, this save is
+    /// about to replace their version: put it in history first.
+    private func keepOthersChanges(replacedBy newText: String) {
+        let url = StorageLocation.currentURL
+        guard Self.diskMovedOn(fileMTime: Self.fileMTime(at: url), lastLoadedMTime: lastLoadedMTime),
+              let theirs = try? String(contentsOf: url, encoding: .utf8),
+              theirs != lastSavedText, theirs != newText else { return }
+        Snapshots.recordCheckpoint(text: theirs)
+        showNotice("Other changes kept in History")
+    }
+
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
@@ -654,10 +748,15 @@ final class EditorModel: ObservableObject {
 
     nonisolated private static func write(_ text: String) throws {
         let url = StorageLocation.currentURL
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        // Only Wisp's own folder is made on demand. A chosen folder that
+        // has gone is a drive ejected or a sync folder signed out of;
+        // recreating it would quietly save to a place nothing syncs.
+        if !StorageLocation.isCustom {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 }
@@ -715,6 +814,7 @@ struct EditorView: View {
                     wordCount: model.wordCount,
                     notice: model.notice,
                     saveFailed: model.saveFailed,
+                    noteUnavailable: model.noteUnavailable,
                     fontSize: model.fontSize,
                     onCycleFontSize: { model.cycleFontSize() },
                     themePreference: model.themePreference,

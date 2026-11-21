@@ -2088,6 +2088,46 @@ enum SelfTests {
         try? FileManager.default.removeItem(at: switchRoot)
         switchDefaults.removePersistentDomain(forName: switchSuite)
 
+        // MARK: - EditorModel: a note that can't be read
+
+        let readRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wisp-read-\(UUID().uuidString)")
+        let readOwn = readRoot.appendingPathComponent("own")
+        let readSync = readRoot.appendingPathComponent("sync")
+        try? FileManager.default.createDirectory(at: readSync, withIntermediateDirectories: true)
+        let syncNote = StorageLocation.scratchpadURL(in: readSync)
+        check("read: no file in a folder that exists is a fresh note",
+              EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .fresh)
+        check("read: Wisp's own folder not existing yet is a first launch",
+              EditorModel.readNote(at: StorageLocation.scratchpadURL(in: readOwn), ownFolder: readOwn) == .fresh)
+        check("read: a chosen folder that isn't there is not an empty note",
+              EditorModel.readNote(
+                at: StorageLocation.scratchpadURL(in: readRoot.appendingPathComponent("unmounted")),
+                ownFolder: readOwn) == .unavailable)
+        try? "hello".write(to: syncNote, atomically: true, encoding: .utf8)
+        check("read: a readable note loads", EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .loaded("hello"))
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: syncNote)
+        check("read: a file that isn't UTF-8 is not an empty note",
+              EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .unavailable)
+        try? FileManager.default.removeItem(at: syncNote)
+        try? "".write(to: StorageLocation.placeholderURL(in: readSync), atomically: true, encoding: .utf8)
+        check("read: a note still in iCloud is not an empty note",
+              EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .unavailable)
+        try? FileManager.default.removeItem(at: readRoot)
+
+        check("merge: nothing typed leaves the note as it is", EditorModel.merged(disk: "a\nb", typed: "") == "a\nb")
+        check("merge: typed text follows the note on its own line", EditorModel.merged(disk: "a\nb", typed: "c") == "a\nb\nc")
+        check("merge: no blank line after a trailing newline", EditorModel.merged(disk: "a\n", typed: "c") == "a\nc")
+        check("merge: an empty note takes what was typed", EditorModel.merged(disk: "", typed: "c") == "c")
+
+        let wrote = Date(timeIntervalSince1970: 1_000)
+        check("moved on: a later write by someone else",
+              EditorModel.diskMovedOn(fileMTime: wrote.addingTimeInterval(1), lastLoadedMTime: wrote))
+        check("moved on: not our own last write", !EditorModel.diskMovedOn(fileMTime: wrote, lastLoadedMTime: wrote))
+        check("moved on: a file that appeared where there was none",
+              EditorModel.diskMovedOn(fileMTime: wrote, lastLoadedMTime: nil))
+        check("moved on: no file, nothing to keep", !EditorModel.diskMovedOn(fileMTime: nil, lastLoadedMTime: wrote))
+
         // MARK: - Summary
 
         let total = passed + failures.count
