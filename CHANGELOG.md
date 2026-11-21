@@ -2,7 +2,7 @@
 
 Notable changes to Wisp. Newest first.
 
-## Unreleased
+## 0.1.47 — 2026-11-21
 
 ### Added
 
