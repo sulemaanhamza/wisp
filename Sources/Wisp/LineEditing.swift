@@ -137,6 +137,52 @@ enum LineEditing {
         return indent + "- [ ] " + rest
     }
 
+    /// Tab and ⇧Tab: nest the list item the caret is on one level
+    /// deeper, or bring it back out — or every line of a selection that
+    /// runs over more than one. Nil when there's nothing to do, and the
+    /// key keeps its ordinary meaning: Tab in a sentence is still a tab.
+    static func indent(in text: String, selection: NSRange, outdent: Bool) -> Edit? {
+        let ns = text as NSString
+        let lines = lineRange(for: selection, in: ns)
+        var parts: [(old: String, new: String)] = []
+        var location = lines.location
+        while location < NSMaxRange(lines) || (parts.isEmpty && lines.length == 0) {
+            let line = ns.lineRange(for: NSRange(location: location, length: 0))
+            let (content, terminator) = splitTerminator(ns.substring(with: line))
+            let changed: String
+            if content.allSatisfy({ $0 == " " || $0 == "\t" }) {
+                changed = content  // blank lines gain nothing by moving
+            } else if outdent {
+                changed = String(content.dropFirst(outdentWidth(content)))
+            } else {
+                changed = "\t" + content
+            }
+            parts.append((content + terminator, changed + terminator))
+            if line.length == 0 { break }
+            location = NSMaxRange(line)
+        }
+        guard parts.count > 1 || parts.first.map({ SmartEditing.isListItem(splitTerminator($0.old).body) }) == true,
+              parts.contains(where: { $0.old != $0.new }) else { return nil }
+        let replacement = parts.map(\.new).joined()
+        let selectionOut: NSRange
+        if selection.length == 0 {
+            // The caret stays on the same character of its line.
+            let delta = (parts[0].new as NSString).length - (parts[0].old as NSString).length
+            selectionOut = NSRange(location: max(lines.location, selection.location + delta), length: 0)
+        } else {
+            selectionOut = NSRange(location: lines.location, length: (replacement as NSString).length)
+        }
+        return Edit(range: lines, replacement: replacement, selection: selectionOut)
+    }
+
+    /// How much leading space one step out removes: a tab, or the spaces
+    /// standing in for one — four, or two in a note nested by twos.
+    private static func outdentWidth(_ line: String) -> Int {
+        if line.hasPrefix("\t") { return 1 }
+        let spaces = line.prefix { $0 == " " }.count
+        return spaces >= 4 && spaces % 4 == 0 ? 4 : min(spaces, 2)
+    }
+
     /// Offset just past a task's `] `, within the first line of `text`.
     private static func taskTextStart(in text: String) -> Int {
         let ns = text as NSString

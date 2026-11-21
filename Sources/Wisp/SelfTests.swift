@@ -2071,6 +2071,136 @@ enum SelfTests {
                 && CaretTextView.labelAnchor(of: NSRange(location: 0, length: 3), in: "   " as NSString) == nil)
         try? FileManager.default.removeItem(at: storeFolder)
 
+        // MARK: - Nested lists
+
+        check("nested: a tabbed bullet continues at its depth", SmartEditing.nextListMarker(for: "\t- foo") == "\t- ")
+        check("nested: spaces too", SmartEditing.nextListMarker(for: "    1. foo") == "    2. ")
+        check("nested: a task keeps its box and its depth", SmartEditing.nextListMarker(for: "\t- [x] done") == "\t- [ ] ")
+        check("nested: an empty item is still empty", SmartEditing.nextListMarker(for: "\t- ") == "")
+        check("nested: indented prose isn't a list", SmartEditing.nextListMarker(for: "\tjust text") == nil)
+        check("nested: is a list item", SmartEditing.isListItem("  - a") && SmartEditing.isListItem("- [ ] a")
+                && !SmartEditing.isListItem("a - b"))
+
+        func indented(_ text: String, _ selection: NSRange, outdent: Bool = false) -> (String, NSRange)? {
+            LineEditing.indent(in: text, selection: selection, outdent: outdent).map {
+                ((text as NSString).replacingCharacters(in: $0.range, with: $0.replacement), $0.selection)
+            }
+        }
+        let caretIn = NSRange(location: 3, length: 0)
+        check("tab: nests a list item, caret on the same character",
+              indented("- foo\n- bar", caretIn).map { $0.0 == "\t- foo\n- bar" && $0.1 == NSRange(location: 4, length: 0) } == true)
+        check("tab: in a sentence is left to mean a tab", indented("plain text", caretIn) == nil)
+        check("tab: a numbered item nests", indented("1. one", caretIn)?.0 == "\t1. one")
+        check("tab: a task nests", indented("- [ ] one", caretIn)?.0 == "\t- [ ] one")
+        check("shift-tab: un-nests a tab", indented("\t- foo", caretIn, outdent: true)?.0 == "- foo")
+        check("shift-tab: un-nests four spaces", indented("    - foo", caretIn, outdent: true)?.0 == "- foo")
+        check("shift-tab: un-nests two spaces", indented("  - foo", caretIn, outdent: true)?.0 == "- foo")
+        check("shift-tab: six spaces go back by two", indented("      - foo", caretIn, outdent: true)?.0 == "    - foo")
+        check("shift-tab: nothing to do at the margin", indented("- foo", caretIn, outdent: true) == nil)
+        check("shift-tab: the caret never leaves its line",
+              indented("a\n\t- b", NSRange(location: 2, length: 0), outdent: true)?.1 == NSRange(location: 2, length: 0))
+        let twoLines = NSRange(location: 0, length: 9)
+        check("tab: every line of a selection moves, list or not",
+              indented("one\ntwo\nthree", twoLines).map { $0.0 == "\tone\n\ttwo\n\tthree" && $0.1 == NSRange(location: 0, length: 16) } == true)
+        check("tab: blank lines in a selection stay blank", indented("- a\n\n- b", NSRange(location: 0, length: 8))?.0 == "\t- a\n\n\t- b")
+        check("shift-tab: a selection with nothing to remove is left alone",
+              indented("one\ntwo", NSRange(location: 0, length: 7), outdent: true) == nil)
+        check("tab: CRLF lines keep their breaks", indented("- a\r\n- b", NSRange(location: 0, length: 8))?.0 == "\t- a\r\n\t- b")
+
+        // Through the real delegate: Tab, ⇧Tab and Return.
+        let nestView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let nestCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { nestView.string }, set: { _ in }))
+        nestCoordinator.reminderStore = ReminderStore(
+            fileURL: storeFolder.appendingPathComponent("nest.json"), scheduler: FakeReminderScheduler())
+        nestCoordinator.textView = nestView
+        nestView.delegate = nestCoordinator
+        nestView.textStorage?.delegate = nestCoordinator
+        nestView.string = "- parent\n- child"
+        nestView.setSelectedRange(NSRange(location: 16, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: Tab nests the item", nestView.string == "- parent\n\t- child")
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("editor: Return continues at that depth", nestView.string == "- parent\n\t- child\n\t- ")
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("editor: Return on an empty nested item steps out", nestView.string == "- parent\n\t- child\n- ")
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("editor: …and once more ends the list", nestView.string == "- parent\n\t- child\n\n")
+        nestView.string = "\t- child"
+        nestView.setSelectedRange(NSRange(location: 5, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+        check("editor: ⇧Tab brings it back", nestView.string == "- child")
+        nestView.string = "prose"
+        nestView.setSelectedRange(NSRange(location: 5, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: Tab in prose still types a tab", nestView.string == "prose\t")
+        nestView.string = "2 + 2 ="
+        MarkdownStyler.restyle(nestView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        nestView.setSelectedRange(NSRange(location: 7, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: Tab after = still types the answer", nestView.string == "2 + 2 = 4")
+        nestView.string = "- 2 + 2 ="
+        MarkdownStyler.restyle(nestView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        nestView.setSelectedRange(NSRange(location: 9, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: …in a list item too, rather than nesting it", nestView.string == "- 2 + 2 = 4")
+        nestCoordinator.stopObservingReminders()
+
+        // ⌘L and Tab over several lines change each in place: a set
+        // reminder keeps its time, and isn't set a second time.
+        let multi = FakeReminderScheduler()
+        let multiStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("multi.json"), scheduler: multi)
+        let multiView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let multiCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { multiView.string }, set: { _ in }))
+        multiCoordinator.reminderStore = multiStore
+        multiCoordinator.textView = multiView
+        multiView.delegate = multiCoordinator
+        multiView.textStorage?.delegate = multiCoordinator
+        for ch in "Remind me in 15 minutes to test" { multiView.insertText(String(ch), replacementRange: multiView.selectedRange()) }
+        multiView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        for ch in "Remind me in 2 hours to rest" { multiView.insertText(String(ch), replacementRange: multiView.selectedRange()) }
+        multiView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        let setBefore = multiStore.reminders
+        check("multi: two reminders set", setBefore.count == 2 && multi.scheduled.count == 2)
+        func sameReminders(_ lines: [String]) -> Bool {
+            let now = multiStore.reminders.filter { $0.state != .cancelled }
+            return now.count == 2 && zip(setBefore, lines).allSatisfy { was, line in
+                now.contains { $0.id == was.id && $0.fireDate == was.fireDate && $0.line == line }
+            }
+        }
+        multiView.setSelectedRange(NSRange(location: 0, length: (multiView.string as NSString).length))
+        LineEditing.apply(LineEditing.toggleTask(in: multiView.string, selection: multiView.selectedRange()), to: multiView)
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        check("multi: ⌘L over both lines keeps both reminders and their times",
+              multiView.string == "- [ ] Remind me in 15 minutes to test\n- [ ] Remind me in 2 hours to rest\n"
+                && sameReminders(["- [ ] Remind me in 15 minutes to test", "- [ ] Remind me in 2 hours to rest"]))
+        multiView.setSelectedRange(NSRange(location: 0, length: (multiView.string as NSString).length))
+        multiView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        check("multi: Tab over both lines keeps them too",
+              sameReminders(["\t- [ ] Remind me in 15 minutes to test", "\t- [ ] Remind me in 2 hours to rest"]))
+        multiView.setSelectedRange(NSRange(location: 2, length: 0))
+        if let edit = LineEditing.moveLines(in: multiView.string, selection: multiView.selectedRange(), up: false) {
+            LineEditing.apply(edit, to: multiView)
+        }
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        check("multi: ⌥↓ trades the lines' places and nothing else",
+              multiView.string.hasPrefix("\t- [ ] Remind me in 2 hours to rest\n")
+                && sameReminders(["\t- [ ] Remind me in 15 minutes to test", "\t- [ ] Remind me in 2 hours to rest"]))
+        // Two lines pasted over two: one already there, one new.
+        multiView.setSelectedRange(NSRange(location: 0, length: (multiView.string as NSString).length))
+        multiView.insertText("\t- [ ] Remind me in 2 hours to rest\nRemind me in 3 hours to eat\n",
+                             replacementRange: multiView.selectedRange())
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        let afterPaste = multiStore.reminders.filter { $0.state != .cancelled }
+        check("multi: a new line pasted beside a kept one is set",
+              afterPaste.count == 2 && afterPaste.contains { $0.line == "Remind me in 3 hours to eat" }
+                && afterPaste.contains { $0.id == setBefore[1].id && $0.fireDate == setBefore[1].fireDate })
+        multiCoordinator.stopObservingReminders()
+
         // MARK: - Editor: text replaced from outside
 
         // A reload or an archive replaces the text; undo must not then

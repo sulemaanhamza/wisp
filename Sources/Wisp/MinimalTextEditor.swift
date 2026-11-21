@@ -304,6 +304,9 @@ struct MinimalTextEditor: NSViewRepresentable {
         /// The edited line as it was before the current edit, when the
         /// edit stays within one line.
         private var lineBeforeEdit: String?
+        /// The lines an edit over several replaced, in order — ⌘L or Tab
+        /// on a selection changes each line in place.
+        private var linesBeforeEdit: [String]?
         /// The note's text view, for what the model asks directly.
         weak var textView: NSTextView?
         private var inTextDidChange = false
@@ -423,18 +426,37 @@ struct MinimalTextEditor: NSViewRepresentable {
         /// ("not set on this Mac") stays unset until it's edited here.
         private func noteDraftReminders(around edited: NSRange, in textView: NSTextView) {
             let before = lineBeforeEdit
+            let befores = linesBeforeEdit
             lineBeforeEdit = nil
+            linesBeforeEdit = nil
             guard let storage = textView.textStorage else { return }
             let ns = storage.string as NSString
             let start = min(edited.location, ns.length)
             let end = min(max(start, NSMaxRange(edited)), ns.length)
             let lines = ns.lineRange(for: NSRange(location: start, length: end - start))
             guard ns.range(of: "remind me", options: .caseInsensitive, range: lines).location != NSNotFound
-                    || before.map({ draftReminders.contains($0) }) == true else { return }
+                    || before.map({ draftReminders.contains($0) }) == true
+                    || befores?.contains(where: { draftReminders.contains($0) }) == true else { return }
             var edited: [(line: String, range: NSRange)] = []
             ns.enumerateSubstrings(in: lines, options: .byLines) { line, range, _, _ in
                 if let line { edited.append((line, range)) }
             }
+            // Several lines each changed in place (⌘L or Tab on a
+            // selection): every line is an edit of the one it replaced.
+            // Not lines that only traded places (⌥↑), which are the same
+            // lines still.
+            if before == nil, let befores, befores.count == edited.count, befores.count > 1 {
+                let old = Set(befores), new = Set(edited.map(\.line))
+                for (was, now) in zip(befores, edited) where was != now.line {
+                    let inPlace = !new.contains(was) && !old.contains(now.line)
+                    noteDrafts(in: [now], editedFrom: inPlace ? was : nil, storage: storage)
+                }
+                return
+            }
+            noteDrafts(in: edited, editedFrom: before, storage: storage)
+        }
+
+        private func noteDrafts(in edited: [(line: String, range: NSRange)], editedFrom before: String?, storage: NSTextStorage) {
             // The line now reads differently: its previous text is no
             // longer a draft, and what that was edited from carries over —
             // a line being typed traces back to where it started, not to
@@ -741,7 +763,10 @@ struct MinimalTextEditor: NSViewRepresentable {
                 return handleEnter(in: textView)
             }
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                return acceptAnswer(in: textView)
+                return acceptAnswer(in: textView) || indent(in: textView, outdent: false)
+            }
+            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                return indent(in: textView, outdent: true)
             }
             return false
         }
@@ -772,6 +797,17 @@ struct MinimalTextEditor: NSViewRepresentable {
                 let line = ns.lineRange(for: NSRange(location: min(affectedCharRange.location, ns.length), length: 0))
                 lineBeforeEdit = NSMaxRange(affectedCharRange) <= NSMaxRange(line)
                     ? Self.lineText(at: line.location, in: ns) : nil
+                linesBeforeEdit = nil
+                // Bounded: a paste over the whole of a long note isn't a
+                // line-by-line edit, and shouldn't cost a split of it.
+                if lineBeforeEdit == nil, affectedCharRange.length <= 20_000 {
+                    var lines: [String] = []
+                    let covered = LineEditing.lineRange(for: affectedCharRange, in: ns)
+                    ns.enumerateSubstrings(in: covered, options: .byLines) { line, _, _, _ in
+                        if let line { lines.append(line) }
+                    }
+                    linesBeforeEdit = lines
+                }
             }
 
             // Only single-char `-` insertions count. Pastes (multi-char) and
@@ -817,6 +853,15 @@ struct MinimalTextEditor: NSViewRepresentable {
                   let insertion = Self.answerInsertion(in: storage, selection: textView.selectedRange())
             else { return false }
             replace(in: textView, range: NSRange(location: insertion.location, length: 0), with: insertion.text)
+            return true
+        }
+
+        /// Tab on a list item nests it; ⇧Tab brings it back out.
+        private func indent(in textView: NSTextView, outdent: Bool) -> Bool {
+            guard !textView.hasMarkedText(),
+                  let edit = LineEditing.indent(in: textView.string, selection: textView.selectedRange(), outdent: outdent)
+            else { return false }
+            LineEditing.apply(edit, to: textView)
             return true
         }
 
@@ -866,6 +911,13 @@ struct MinimalTextEditor: NSViewRepresentable {
                 return false
             }
 
+            // Return on an empty nested item steps it out a level, as
+            // ⇧Tab would; on an empty top-level one it ends the list.
+            if marker.isEmpty, line.first == " " || line.first == "\t",
+               let edit = LineEditing.indent(in: textView.string, selection: textView.selectedRange(), outdent: true) {
+                LineEditing.apply(edit, to: textView)
+                return true
+            }
             if marker.isEmpty {
                 let stripRange = NSRange(
                     location: lineRange.location,
