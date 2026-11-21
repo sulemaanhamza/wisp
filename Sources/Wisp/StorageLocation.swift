@@ -162,12 +162,20 @@ enum StorageLocation {
             // says the same thing.
             var backupURL: URL?
             if !currentText.isEmpty, currentText != loaded {
-                let url = oldURL.deletingLastPathComponent()
-                    .appendingPathComponent(backupFilename())
-                // Not `try?`: the local note is about to leave the screen,
-                // and the user is told it was saved here.
-                try currentText.write(to: url, atomically: true, encoding: .utf8)
-                backupURL = url
+                // Beside the old note — or, when that folder is the thing
+                // that's gone (a drive ejected), in Wisp's own. Not
+                // `try?` on the last resort: the local note is about to
+                // leave the screen, and the user is told where it went.
+                let name = backupFilename()
+                let beside = oldURL.deletingLastPathComponent().appendingPathComponent(name)
+                if (try? currentText.write(to: beside, atomically: true, encoding: .utf8)) != nil {
+                    backupURL = beside
+                } else {
+                    try fm.createDirectory(at: ownFolder, withIntermediateDirectories: true)
+                    let own = ownFolder.appendingPathComponent(name)
+                    try currentText.write(to: own, atomically: true, encoding: .utf8)
+                    backupURL = own
+                }
             }
             if !keepingOldCopy { removeOldCopy(oldURL, ownFolder: ownFolder) }
             defaults.set(folder.path, forKey: folderKey)
@@ -197,12 +205,22 @@ enum StorageLocation {
     /// default location and clears the custom path. The custom-folder
     /// file is *not* deleted — other Macs may still be syncing through
     /// it, and removing it here would yank their content too.
-    static func resetToDefault(currentText: String) throws {
-        guard isCustom else { return }
+    ///
+    /// A note already in the default folder that says something else is
+    /// moved aside first, not written over — it may be one that was
+    /// never read.
+    static func resetToDefault(
+        currentText: String, ownFolder: URL = defaultFolder, defaults: UserDefaults = .standard
+    ) throws {
+        guard let custom = defaults.string(forKey: folderKey), !custom.isEmpty else { return }
         let fm = FileManager.default
-        try fm.createDirectory(at: defaultFolder, withIntermediateDirectories: true)
-        let defaultURL = scratchpadURL(in: defaultFolder)
+        try fm.createDirectory(at: ownFolder, withIntermediateDirectories: true)
+        let defaultURL = scratchpadURL(in: ownFolder)
+        if fm.fileExists(atPath: defaultURL.path),
+           (try? String(contentsOf: defaultURL, encoding: .utf8)) != currentText {
+            try fm.moveItem(at: defaultURL, to: ownFolder.appendingPathComponent(backupFilename()))
+        }
         try currentText.write(to: defaultURL, atomically: true, encoding: .utf8)
-        UserDefaults.standard.removeObject(forKey: folderKey)
+        defaults.removeObject(forKey: folderKey)
     }
 }

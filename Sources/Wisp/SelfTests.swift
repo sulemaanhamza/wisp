@@ -2267,6 +2267,11 @@ enum SelfTests {
         check("card: nor when it's downloaded", !Updater.showsCard(for: .pending(version: "0.1.48"), dismissedVersion: "0.1.48"))
         check("card: the next version shows it again", Updater.showsCard(for: offered, dismissedVersion: "0.1.47"))
         check("card: nothing to show when idle", !Updater.showsCard(for: .idle, dismissedVersion: nil))
+        check("card: 'Later' to an offer doesn't hide the card that says its install failed",
+              Updater.showsCard(for: .failed(version: "0.1.48"), dismissedVersion: "0.1.48"))
+        check("card: a failure answered once stays answered",
+              !Updater.showsCard(for: .failed(version: "0.1.48"),
+                                 dismissedVersion: Updater.cardToken(for: .failed(version: "0.1.48"))))
 
         // MARK: - Snapshots: thinning by age
 
@@ -2395,6 +2400,35 @@ enum SelfTests {
         check("switch: a note that was never read isn't removed, even from Wisp's own folder",
               fromUnread != nil && (try? Data(contentsOf: unreadNote)) == Data([0xFF, 0xFE, 0x00, 0xD8])
                 && read(StorageLocation.scratchpadURL(in: emptyDir)) == "typed meanwhile")
+        // The old folder has gone (a drive ejected): the backup still
+        // has somewhere to go.
+        let ejected = StorageLocation.scratchpadURL(in: switchRoot.appendingPathComponent("ejected"))
+        let backupHome = switchRoot.appendingPathComponent("own3")
+        try? "theirs".write(to: noteA, atomically: true, encoding: .utf8)
+        let fromEjected = try? StorageLocation.setFolder(
+            syncA, currentText: "typed on the way", from: ejected, ownFolder: backupHome, defaults: switchDefaults)
+        check("switch: with the old folder gone, the backup goes to Wisp's own",
+              fromEjected?.newText == "theirs" && fromEjected?.backupURL.flatMap(read) == "typed on the way"
+                && fromEjected?.backupURL?.deletingLastPathComponent().standardizedFileURL.path
+                    == backupHome.standardizedFileURL.path)
+
+        // Reset never writes over a note it didn't read.
+        let resetOwn = switchRoot.appendingPathComponent("own4")
+        try? FileManager.default.createDirectory(at: resetOwn, withIntermediateDirectories: true)
+        let resetNote = StorageLocation.scratchpadURL(in: resetOwn)
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: resetNote)
+        switchDefaults.set(syncA.path, forKey: StorageLocation.folderKey)
+        try? StorageLocation.resetToDefault(currentText: "current", ownFolder: resetOwn, defaults: switchDefaults)
+        let resetFiles = (try? FileManager.default.contentsOfDirectory(atPath: resetOwn.path)) ?? []
+        let movedAside = resetFiles.first { $0.hasPrefix(StorageLocation.backupPrefix) }
+        check("reset: the current text becomes the note", read(resetNote) == "current"
+                && switchDefaults.string(forKey: StorageLocation.folderKey) == nil)
+        check("reset: a different note already there is moved aside, not lost",
+              movedAside.map { try? Data(contentsOf: resetOwn.appendingPathComponent($0)) } == Data([0xFF, 0xFE, 0x00, 0xD8]))
+        switchDefaults.set(syncA.path, forKey: StorageLocation.folderKey)
+        try? StorageLocation.resetToDefault(currentText: "current", ownFolder: resetOwn, defaults: switchDefaults)
+        check("reset: the same note already there makes no backup",
+              ((try? FileManager.default.contentsOfDirectory(atPath: resetOwn.path)) ?? []).count == resetFiles.count)
         try? FileManager.default.removeItem(at: switchRoot)
         switchDefaults.removePersistentDomain(forName: switchSuite)
 

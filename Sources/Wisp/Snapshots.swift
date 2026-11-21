@@ -100,6 +100,17 @@ enum Snapshots {
         queue.sync { writeIfNew(content: old, now: Date()) }
     }
 
+    /// Keep a file exactly as it is — for a note that can't be read as
+    /// text and is about to be written over.
+    static func recordFile(at url: URL) {
+        queue.sync {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? fm.copyItem(at: url, to: freeURL(at: Date()))
+            prune()
+        }
+    }
+
     static func revealInFinder() {
         let fm = FileManager.default
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)

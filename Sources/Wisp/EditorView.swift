@@ -306,20 +306,24 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
         }
         let url = StorageLocation.currentURL
+        // What was typed in an earlier session while the note couldn't
+        // be read, and so was never saved into it.
+        let kept = (try? String(contentsOf: Self.unsavedURL, encoding: .utf8)) ?? ""
         switch Self.readNote(at: url) {
         case .loaded(let loaded):
-            text = loaded
+            text = Self.merged(disk: loaded, typed: kept)
             lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
             // A line ticked or deleted while Wisp wasn't running cancels
             // its reminder now, not on the next local edit.
-            ReminderStore.shared.loaded(loaded)
+            ReminderStore.shared.loaded(text)
         case .fresh:
-            break
+            text = kept
         case .unavailable:
             // In a sync folder this usually means iCloud is still holding
             // the file in the cloud — ask for it now and pick it up on a
             // later panel open.
+            text = kept
             noteUnavailable = true
             StorageLocation.startDownloadIfPlaceholder()
         }
@@ -327,6 +331,11 @@ final class EditorModel: ObservableObject {
         wordCountTask?.cancel()
         wordCount = Self.countWords(text)
         didLoad = true
+        if !kept.isEmpty, !noteUnavailable {
+            // The note is readable now: the kept text goes into it.
+            saveNow()
+            if !saveFailed { Self.keepUnsaved("") }
+        }
         // Preserve the loaded content as a session-start snapshot
         // (deduped) so each launch is a recoverable point.
         let loadedText = text
@@ -482,8 +491,29 @@ final class EditorModel: ObservableObject {
             lastSavedText = disk
             lastLoadedMTime = Self.fileMTime(at: url)
             noteUnavailable = false
-            ReminderStore.shared.loaded(disk)
+            // With what was typed: a reminder set meanwhile has its line
+            // in the note now, and stays set.
+            ReminderStore.shared.loaded(combined)
             saveNow()
+        }
+        if !noteUnavailable, !saveFailed { Self.keepUnsaved("") }
+    }
+
+    /// Where text typed while the note can't be read is kept, so that
+    /// quitting — or a crash — before the note comes back doesn't lose
+    /// it. Always in Wisp's own folder: the chosen one may be the thing
+    /// that's missing.
+    nonisolated static var unsavedURL: URL {
+        StorageLocation.defaultFolder.appendingPathComponent("Unsaved.md")
+    }
+
+    nonisolated private static func keepUnsaved(_ text: String) {
+        let fm = FileManager.default
+        if text.isEmpty {
+            try? fm.removeItem(at: unsavedURL)
+        } else {
+            try? fm.createDirectory(at: StorageLocation.defaultFolder, withIntermediateDirectories: true)
+            try? text.write(to: unsavedURL, atomically: true, encoding: .utf8)
         }
     }
 
@@ -502,6 +532,8 @@ final class EditorModel: ObservableObject {
         lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
         noteUnavailable = false
+        // The folder switch took what was typed with it.
+        Self.keepUnsaved("")
         ReminderStore.shared.loaded(newText)
     }
 
@@ -748,7 +780,14 @@ final class EditorModel: ObservableObject {
     func saveNow() {
         saveTask?.cancel()
         saveTask = nil
-        guard didLoad, !noteUnavailable else { return }
+        guard didLoad else { return }
+        if noteUnavailable {
+            // Try the note again on every save, not only when the panel
+            // regains focus; until it reads, keep what's typed aside.
+            recoverNote(at: StorageLocation.currentURL)
+            if noteUnavailable { Self.keepUnsaved(text) }
+            return
+        }
         let newText = text
         guard newText != lastSavedText || saveFailed else { return }
         keepOthersChanges(replacedBy: newText)
@@ -777,9 +816,15 @@ final class EditorModel: ObservableObject {
     /// about to replace their version: put it in history first.
     private func keepOthersChanges(replacedBy newText: String) {
         let url = StorageLocation.currentURL
-        guard Self.diskMovedOn(fileMTime: Self.fileMTime(at: url), lastLoadedMTime: lastLoadedMTime),
-              let theirs = try? String(contentsOf: url, encoding: .utf8),
-              theirs != lastSavedText, theirs != newText else { return }
+        guard Self.diskMovedOn(fileMTime: Self.fileMTime(at: url), lastLoadedMTime: lastLoadedMTime) else { return }
+        guard let theirs = try? String(contentsOf: url, encoding: .utf8) else {
+            // Written in another encoding, or cut short mid-character:
+            // kept as it is, byte for byte.
+            Snapshots.recordFile(at: url)
+            showNotice("Other changes kept in History")
+            return
+        }
+        guard theirs != lastSavedText, theirs != newText else { return }
         Snapshots.recordCheckpoint(text: theirs)
         showNotice("Other changes kept in History")
     }
@@ -937,6 +982,18 @@ struct EditorView: View {
                         updater.cancelAutoApply()
                         updater.dismissCard()
                         withAnimation(overlayAnimation) {
+                            model.updateDismissed = true
+                        }
+                    },
+                    onTypePast: {
+                        // Typing over a download that was asked for hides
+                        // the card and nothing else: the restart still
+                        // happens. Otherwise it's the same as "Later".
+                        if case .downloading = updater.state {
+                            model.updateDismissed = true
+                        } else {
+                            updater.cancelAutoApply()
+                            updater.dismissCard()
                             model.updateDismissed = true
                         }
                     }

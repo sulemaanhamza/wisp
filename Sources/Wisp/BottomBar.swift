@@ -36,7 +36,7 @@ struct BottomBar: View {
             if noteUnavailable {
                 Text("can't open your note")
                     .foregroundStyle(.orange)
-                    .help("Wisp can't read scratchpad.md in its storage folder yet, so nothing is being saved over it. What you type here is added to the note once it can be read.")
+                    .help("Wisp can't read scratchpad.md in its storage folder yet, so nothing is being saved over it. What you type here is kept, and added to the note once it can be read.")
             } else if saveFailed {
                 Text("couldn't save")
                     .foregroundStyle(.orange)

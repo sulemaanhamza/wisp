@@ -16,6 +16,8 @@ struct UpdateAvailableOverlay: View {
     let highlights: [String]
     let onUpdate: () -> Void
     let onLater: () -> Void
+    /// A key was typed with the card showing. It goes on to the note.
+    var onTypePast: () -> Void = {}
 
     @State private var monitor: Any?
 
@@ -127,14 +129,19 @@ struct UpdateAvailableOverlay: View {
         return false
     }
 
-    /// Esc is "Later", and so is anything else typed — which then goes
-    /// on to the note, where it was headed. Return included: it used to
-    /// look like the default button's key but never reached it, and a
-    /// stray Return restarting Wisp mid-thought would be worse.
+    /// Esc is "Later". Anything typed gets the card out of the way and
+    /// goes on to the note, where it was headed. Return included: it
+    /// used to look like the default button's key but never reached it,
+    /// and a stray Return restarting Wisp mid-thought would be worse.
+    /// A ⌘ shortcut isn't typing, and leaves the card alone.
     private func startListening() {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            onLater()
-            return Int(event.keyCode) == kVK_Escape ? nil : event
+            if Int(event.keyCode) == kVK_Escape {
+                onLater()
+                return nil
+            }
+            if !event.modifierFlags.contains(.command) { onTypePast() }
+            return event
         }
     }
 

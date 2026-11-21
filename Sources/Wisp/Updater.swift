@@ -35,9 +35,18 @@ final class Updater: ObservableObject {
     @Published private(set) var dismissedVersion = UserDefaults.standard.string(forKey: dismissedVersionKey)
 
     func dismissCard() {
-        guard let version = Self.version(of: state), version != dismissedVersion else { return }
-        dismissedVersion = version
-        UserDefaults.standard.set(version, forKey: dismissedVersionKey)
+        guard let token = Self.cardToken(for: state), token != dismissedVersion else { return }
+        dismissedVersion = token
+        UserDefaults.standard.set(token, forKey: dismissedVersionKey)
+    }
+
+    /// What a dismissal is remembered by. A failed install is its own
+    /// thing: "Later" to the offer of 0.1.48 mustn't also hide the card
+    /// that explains why 0.1.48 couldn't be installed.
+    nonisolated static func cardToken(for state: UpdateState) -> String? {
+        guard let version = version(of: state) else { return nil }
+        if case .failed = state { return version + " failed" }
+        return version
     }
 
     nonisolated static func version(of state: UpdateState) -> String? {
@@ -50,8 +59,8 @@ final class Updater: ObservableObject {
 
     /// Pure: does this state still have a card to show?
     nonisolated static func showsCard(for state: UpdateState, dismissedVersion: String?) -> Bool {
-        guard let version = version(of: state) else { return false }
-        return version != dismissedVersion
+        guard let token = cardToken(for: state) else { return false }
+        return token != dismissedVersion
     }
 
     private let owner = "sulemaanhamza"
