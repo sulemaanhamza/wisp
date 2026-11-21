@@ -29,11 +29,21 @@ enum InlineMath {
             // show a confident, wrong 25.4 cm.
             // A label closed with a colon is plainly a label, number and
             // all: "Week 2: 40 + 30".
-            if start > 0, containsNumber(ns.substring(to: start)),
-               !ns.substring(to: start).trimmingCharacters(in: .whitespaces).hasSuffix(":") { continue }
+            if start > 0, containsNumber(ns.substring(to: start)), !isLabel(ns.substring(to: start)) { continue }
             if let answer = evaluate(ns.substring(from: start)) { return answer }
         }
         return nil
+    }
+
+    /// "Week 2:", "2 people:" — words, closed by a colon written hard
+    /// against them. Not "10: 30" (a time), "Score 2 : 1" (a score) or
+    /// "2 + 3:" (a sum).
+    private static func isLabel(_ prefix: String) -> Bool {
+        let text = prefix.trimmingCharacters(in: .whitespaces)
+        guard text.hasSuffix(":"), !text.hasSuffix(" :"), text.contains(where: \.isLetter) else { return false }
+        // One label, not a list of them: "Mon 3 h, Tue: 2 h + 1 h" would
+        // answer for Tuesday and say nothing of Monday's three hours.
+        return !text.contains { "+-*/=×÷−,;".contains($0) }
     }
 
     /// Whether `text` holds a number the maths would read, as opposed to
@@ -84,7 +94,7 @@ enum InlineMath {
     }
 
     private static let sharePattern = try! NSRegularExpression(
-        pattern: #"^(.+?)\s+is\s+what\s+(?:%|percent(?:age)?)\s+of\s+(.+)$"#, options: .caseInsensitive
+        pattern: #"^(.+?)\s+is\s+what\s*(?:%|(?<=\s)percent(?:age)?)\s+of\s+(.+)$"#, options: .caseInsensitive
     )
 
     /// "50 is what % of 200": the question asked the other way round.
@@ -94,18 +104,20 @@ enum InlineMath {
         guard let m = sharePattern.firstMatch(in: expression, range: NSRange(location: 0, length: ns.length)) else {
             return nil
         }
-        func amount(_ text: String) -> Double? {
+        func value(_ text: String) -> Value? {
             guard let tokens = tokenize(text) else { return nil }
             var parser = Parser(tokens: tokens)
             guard let value = parser.parseStatement(), parser.isAtEnd else { return nil }
-            switch value {
-            case .number(let n), .money(let n, _), .quantity(let n, _): return n
-            case .percent: return nil
-            }
+            // A percentage of a percentage isn't what's being asked.
+            if case .percent = value { return nil }
+            return value
         }
-        guard let part = amount(ns.substring(with: m.range(at: 1))),
-              let whole = amount(ns.substring(with: m.range(at: 2))), whole != 0 else { return nil }
-        return format(.percent(part / whole * 100))
+        // Divided the way any two amounts are, so units convert and
+        // unlike things — km and kg, $ and € — have no answer.
+        guard let part = value(ns.substring(with: m.range(at: 1))),
+              let whole = value(ns.substring(with: m.range(at: 2))),
+              case .number(let ratio)? = Parser.multiply(part, whole, dividing: true) else { return nil }
+        return format(.percent(ratio * 100))
     }
 
     // MARK: Values
@@ -148,7 +160,7 @@ enum InlineMath {
         case currency(Character, spaced: Bool)
     }
 
-    private static let keywords: Set<String> = ["in", "to", "as", "of", "off", "x"]
+    private static let keywords: Set<String> = ["in", "to", "as", "of", "x"]
 
     /// `2k`, `1.5M` — only straight after a number, and only these
     /// spellings: lowercase `m` is metres.
@@ -231,8 +243,25 @@ enum InlineMath {
                 // rest are labels — "4 nights × 120", "3 apples + 2" —
                 // and read as if they weren't there.
                 let lower = word.lowercased()
-                if keywords.contains(lower) || Units.unit(named: lower) != nil {
+                // "off" means something only between a percentage and
+                // what it comes off; anywhere else it's a label: "3 days
+                // off + 2 days off", "100 - 20% off".
+                let comesOff = lower == "off" && tokens.last == .symbol("%")
+                    && chars[i...].contains { $0 != " " && $0 != "\t" }
+                if keywords.contains(lower) || comesOff {
                     tokens.append(.word(lower))
+                } else if let unit = Units.unit(named: lower) {
+                    // Kitchen units are everyday words too. Before another
+                    // word they're part of a label, as they were before
+                    // Wisp knew them: "2 cup holders + 2", "2 cups flour +
+                    // 1 cup sugar".
+                    var j = i
+                    while j < n, chars[j] == " " || chars[j] == "\t" { j += 1 }
+                    var next = ""
+                    while j < n, chars[j].isLetter { next.append(chars[j]); j += 1 }
+                    let labelled = !next.isEmpty && !keywords.contains(next.lowercased())
+                        && Units.unit(named: next.lowercased()) == nil
+                    if !(Units.isHousehold(unit) && labelled) { tokens.append(.word(lower)) }
                 }
             } else if lenient {
                 i += 1
@@ -413,6 +442,12 @@ enum InlineMath {
             case (.quantity(let x, let u), .quantity(let y, let v)):
                 guard let y2 = Units.convert(y, from: v, to: u) else { return nil }
                 return .quantity(x + sign * y2, u)
+            // "5 l + 5", "2 stone + 3": more of the same, as these read
+            // when the unit was only a word.
+            case (.quantity(let x, let u), .number(let y)) where Units.isHousehold(u):
+                return .quantity(x + sign * y, u)
+            case (.number(let x), .quantity(let y, let u)) where Units.isHousehold(u):
+                return .quantity(x + sign * y, u)
             // 150 + 15% is 150 grown by 15%, as on a till receipt.
             case (.number(let x), .percent(let p)):
                 return .number(x * (1 + sign * p / 100))
@@ -436,10 +471,16 @@ enum InlineMath {
                 guard dividing, c.symbol == d.symbol, y != 0 else { return nil }
                 return .number(x / y)
             // A rate: "5 hrs × $40", "$200 / 8 hrs". The unit is what the
-            // money is per, and drops out.
-            case (.quantity(let x, _), .money(let y, let c)):
-                return dividing ? nil : .money(x * y, c)
-            case (.money(let x, let c), .quantity(let y, _)):
+            // money is per, and drops out. Hours, days and weeks only:
+            // "90 min × $40" could be per minute or per hour, and a
+            // guess either way is a confident wrong number.
+            //
+            // Kitchen units too, as the plain words they were before
+            // Wisp knew them: "3 cups × $2", "$3.50 × 12 gal".
+            case (.quantity(let x, let u), .money(let y, let c)):
+                return dividing || !(Units.isRateUnit(u) || Units.isHousehold(u)) ? nil : .money(x * y, c)
+            case (.money(let x, let c), .quantity(let y, let u)):
+                guard Units.isRateUnit(u) || Units.isHousehold(u) else { return nil }
                 if dividing { return y == 0 ? nil : .money(x / y, c) }
                 return .money(x * y, c)
             case (.money(let x, let c), _):
@@ -449,6 +490,15 @@ enum InlineMath {
             case (_, .money(let y, let c)):
                 guard !dividing, let x = a.scalar else { return nil }
                 return .money(x * y, c)
+            // "300 mi / 12 gal": per gallon, as it read before Wisp knew
+            // gallons and took "gal" for a label.
+            case (.quantity(let x, let u), .quantity(let y, let v))
+                where dividing && Units.isHousehold(v) && !Units.isHousehold(u):
+                return y == 0 ? nil : .quantity(x / y, u)
+            // "3 cups × 250 ml": three of them.
+            case (.quantity(let x, let u), .quantity(let y, let v))
+                where !dividing && Units.isHousehold(u) && Units.isHousehold(v):
+                return .quantity(x * y, v)
             case (.quantity(let x, let u), _):
                 guard let y = b.scalar ?? Self.sameUnitRatio(b, u) else { return nil }
                 if case .quantity = b {
@@ -486,7 +536,10 @@ enum InlineMath {
             return formatNumber(p, maxFraction: 4).map { $0 + "%" }
         case .quantity(let q, let unit):
             let digits = abs(q) < 1 ? 4 : 2
-            return formatNumber(q, maxFraction: digits).map { "\($0) \(Units.symbol(for: unit))" }
+            return formatNumber(q, maxFraction: digits).map {
+                let symbol = Units.symbol(for: unit)
+                return "\($0) \(symbol == "cups" && $0 == "1" ? "cup" : symbol)"
+            }
         case .money(let m, let currency):
             return formatMoney(m, currency)
         }
@@ -510,7 +563,9 @@ enum InlineMath {
         guard abs(inSmaller - total) < 1e-6, let perUnit = Units.convert(1, from: unit, to: smaller) else { return nil }
         let whole = (total / perUnit).rounded(.down)
         let rest = total - whole * perUnit
-        guard let restText = formatNumber(rest, maxFraction: 0) else { return nil }
+        // A whole number after all, a hair off in floating point: the
+        // plain form says "2 h", not "2 h 0 min".
+        guard rest > 0, let restText = formatNumber(rest, maxFraction: 0) else { return nil }
         let tail = "\(restText) \(Units.symbol(for: smaller))"
         guard whole > 0, let wholeText = formatNumber(whole, maxFraction: 0) else { return tail }
         return "\(wholeText) \(Units.symbol(for: unit)) \(tail)"
@@ -595,7 +650,8 @@ enum Units {
         (["g", "gram", "grams"], UnitMass.grams, "g"),
         (["lb", "lbs", "pound", "pounds"], UnitMass.pounds, "lb"),
         (["oz", "ounce", "ounces"], UnitMass.ounces, "oz"),
-        (["stone", "stones"], UnitMass.stones, "st"),
+        // Shown in full: "st" isn't read back, and looks like "street".
+        (["stone", "stones"], UnitMass.stones, "stone"),
         (["l", "liter", "liters", "litre", "litres"], UnitVolume.liters, "L"),
         (["ml", "milliliter", "milliliters", "millilitre", "millilitres"], UnitVolume.milliliters, "ml"),
         (["cup", "cups"], UnitVolume.cups, "cups"),
@@ -628,6 +684,17 @@ enum Units {
     }()
 
     static func unit(named name: String) -> Dimension? { byName[name.lowercased()] }
+
+    /// Volumes and stone: units added after people had been writing
+    /// them as plain words in their sums.
+    static func isHousehold(_ unit: Dimension) -> Bool {
+        unit is UnitVolume || unit == UnitMass.stones
+    }
+
+    /// Units money is commonly charged by.
+    static func isRateUnit(_ unit: Dimension) -> Bool {
+        unit == UnitDuration.hours || unit == day || unit == week
+    }
 
     static func symbol(for unit: Dimension) -> String {
         table.first { $0.unit == unit }?.symbol ?? unit.symbol

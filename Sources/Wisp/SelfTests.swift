@@ -1016,14 +1016,27 @@ enum SelfTests {
             ("50 is what % of 200 =", "25%"),
             ("$30 is what percent of $120 =", "25%"),
             ("5 is what % of 0 =", nil),
+            ("50 is what% of 200 =", "25%"),
+            ("30 min is what % of 2 h =", "25%"),
+            ("500 g is what % of 2 kg =", "25%"),
+            ("$50 is what % of €200 =", nil),
+            ("5 km is what % of 10 kg =", nil),
+            ("15% is what % of 60 =", nil),
             ("10% off 80 =", "72"),
             ("10% off $80 =", "$72"),
             ("day off 3 + 4 =", "7"),
+            ("3 days off + 2 days off =", "5 d"),
+            ("$20 off coupon + $5 =", "$25"),
             // A rate: the unit is what the money is per.
             ("5 hrs * $40 =", "$200"),
             ("$40 × 5 hrs =", "$200"),
             ("$200 / 8 hrs =", "$25"),
             ("5 hrs / $40 =", nil),
+            ("3 days × $200 =", "$600"),
+            // Per minute, or per hour? No answer beats a wrong one.
+            ("90 min × $40 =", nil),
+            ("20 c × $3 =", nil),
+            ("5 km × $2 =", nil),
             // Time comes back the way it's said, unless a unit was asked for.
             ("2 h + 45 min =", "2 h 45 min"),
             ("1 day - 1 h =", "23 h"),
@@ -1031,16 +1044,42 @@ enum SelfTests {
             ("7 h / 3 =", "2 h 20 min"),
             ("0.5 h + 0.25 h =", "45 min"),
             ("1.5 h + 1.5 h =", "3 h"),
+            // A whole number a hair off in floating point.
+            ("2 h - 40 min - 20 min =", "1 h"),
+            ("1 h + 40 min + 20 min =", "2 h"),
+            ("3 h - 50 min - 10 min =", "2 h"),
             ("1 h + 20 s =", "1.01 h"),
             ("90 min in h =", "1.5 h"),
             ("2 h + 45 min in h =", "2.75 h"),
             // A label closed with a colon may hold a number.
             ("Week 2: 40 + 30 =", "70"),
             ("2 people: 90 / 2 =", "45"),
+            // A time, a score, a sum: not labels.
+            ("10: 30 + 15 =", nil),
+            ("Score 2 : 1 + 1 =", nil),
+            ("2 + 3: 4 + 5 =", nil),
             ("5 ft 10 in in cm =", "177.8 cm"),
             ("2 cups in ml =", "480 ml"),
             ("1.5 l + 250 ml =", "1.75 L"),
             ("12 stone in kg =", "76.2 kg"),
+            ("70 kg in stone =", "11.02 stone"),
+            ("11.02 stone in kg =", "69.98 kg"),
+            ("240 ml in cups =", "1 cup"),
+            // Sums that read these as plain words before still do.
+            ("2 cup holders + 2 =", "4"),
+            ("2 cups flour + 1 cup sugar =", "3"),
+            ("300 mi / 12 gal =", "25 mi"),
+            ("100 km / 8 l =", "12.5 km"),
+            ("2 cups + 1 cup =", "3 cups"),
+            ("1 l / 250 ml =", "4"),
+            ("3 cups * $2 =", "$6"),
+            ("$3.50 * 12 gal =", "$42"),
+            ("5 l + 5 =", "10 L"),
+            ("3 cups * 250 ml =", "750 ml"),
+            ("100 - 20% off =", "80"),
+            // A list of labels would answer for the last and drop the rest.
+            ("Mon 3 h, Tue: 2 h + 1 h =", nil),
+            ("Subtotal 40, tax: 40 * 0.2 =", nil),
             ("5 kgs + 2 kg =", "7 kg"),
             ("3 l =", nil),
         ]
@@ -1305,7 +1344,15 @@ enum SelfTests {
         check("time: the opening words always say when", clock(due(readAt("Remind me Friday morning call the Monday team"))) == "10/9 9:00")
 
         check("time: in 20 is minutes", due(readAt("Remind me in 20 to stretch")) == thursday.addingTimeInterval(1200))
-        check("time: …at the end of the line too", due(readAt("Remind me to stretch in 20")) == thursday.addingTimeInterval(1200))
+        check("time: in 20, then a comma", due(readAt("Remind me in 20, call mum")) == thursday.addingTimeInterval(1200))
+        check("time: in 5 and nothing else", due(readAt("Remind me in 5")) == thursday.addingTimeInterval(300))
+        // A number Wisp can't put a unit to sets nothing — never
+        // something a few minutes away.
+        for line in ["Remind me in 3 business days", "Remind me in 1 to 2 hours", "Remind me in 2 or 3 hours",
+                     "Remind me in 6 mo", "Remind me in 5 mintues", "Remind me the code is in 123",
+                     "Remind me to put in 20", "Remind me to dial in 5", "Remind me to stretch in 20"] {
+            check("time: no time in \"\(line)\"", readAt(line) == .noTime)
+        }
         check("time: 'put in 20 dollars' is the task", readAt("Remind me to put in 20 dollars") == .noTime)
         check("time: 'in 2026' isn't minutes", readAt("Remind me in 2026 to renew") == .noTime)
         check("time: 'log in 2 times' is the task", readAt("Remind me to log in 2 times") == .noTime)
@@ -1326,14 +1373,46 @@ enum SelfTests {
         check("time: a quarter past 9, once 9 AM has gone, is the evening",
               clock(due(readAt("Remind me at a quarter past 9 to call"))) == "10/8 21:15")
         check("time: quarter to 1 is 12:45", clock(due(readAt("Remind me at quarter to 1"))) == "10/8 12:45")
-        check("time: at 6 late at night is 6 AM", clock(due(readAt("Remind me at 6 to wake up", lateNight))) == "10/9 6:00")
-        check("time: at 6:30 late at night is 6:30 AM", clock(due(readAt("Remind me at 6:30 to wake up", lateNight))) == "10/9 6:30")
-        check("time: at 6 in the day is 6 PM", clock(due(readAt("Remind me at 6 to cook"))) == "10/8 18:00")
-        check("time: at 5 is still the afternoon", clock(due(readAt("Remind me at 5 to leave", lateNight))) == "10/9 17:00")
+        check("time: 'a quarter to 3 kids' is the task",
+              clock(due(readAt("Remind me to hand a quarter to 3 kids on Friday"))) == "10/9 9:00")
+        check("time: quarter past 3 with a day after it",
+              clock(due(readAt("Remind me to get the kids at quarter past 3 on Friday"))) == "10/9 15:15")
+        check("time: at 6 is 6 PM, with or without a day, as before",
+              clock(due(readAt("Remind me at 6 to cook"))) == "10/8 18:00"
+                && clock(due(readAt("Remind me at 6 to wake up", lateNight))) == "10/9 18:00"
+                && clock(due(readAt("Remind me Friday at 6"))) == "10/9 18:00")
+
+        // Found by running several hundred everyday lines through this
+        // and the released parser: each of these went wrong on the way.
+        check("time: a word after the time doesn't make it the task",
+              clock(due(readAt("Remind me to pick up kids at 3pm from school then dinner at 6pm"))) == "10/8 15:00"
+                && clock(due(readAt("Remind me to call John at 3pm instead of 4pm"))) == "10/8 15:00"
+                && clock(due(readAt("Remind me to dial in at 3pm PST / 5pm"))) == "10/8 15:00")
+        check("time: nor a day", clock(due(readAt("Remind me to call Bob Tuesday not Wednesday"))) == "10/13 9:00"
+                && clock(due(readAt("Remind me to send invoice Friday instead of Monday"))) == "10/9 9:00"
+                && clock(due(readAt("Remind me to call mum Friday evening unless she's out Saturday"))) == "10/9 18:00")
+        check("time: a day goes with the time that describes the same thing",
+              clock(due(readAt("Remind me about the Friday 3pm demo Sunday at 5pm"))) == "10/11 17:00")
+        check("time: next month in the task isn't when",
+              clock(due(readAt("Remind me to book flights for next month on Friday"))) == "10/9 9:00"
+                && clock(due(readAt("Remind me next month on the 15th"))) == "10/15 9:00"
+                && readAt("Remind me to plan next year in the spring") == .noTime)
+        check("time: next month closing the line", clock(due(readAt("Remind me to renew next month"))) == "11/8 9:00")
+        check("time: a longer span before 'from now' isn't cut to its last part",
+              readAt("Remind me 1 hour 30 minutes from now") == .noTime)
+        check("time: in 2 hours from now", due(readAt("Remind me in 2 hours from now")) == thursday.addingTimeInterval(7200))
         check("repeat: every day asks to repeat", Reminders.asksToRepeat("Remind me every day at 9 to take pills"))
         check("repeat: daily, in a task", Reminders.asksToRepeat("- [ ] Remind me daily at 9"))
         check("repeat: a plain reminder doesn't", !Reminders.asksToRepeat("Remind me at 9 to take pills"))
         check("repeat: 'everything' isn't 'every'", !Reminders.asksToRepeat("Remind me at 9 to pack everything"))
+        check("repeat: every Monday, every other week, every 2 hours",
+              Reminders.asksToRepeat("Remind me every Monday at 9") && Reminders.asksToRepeat("Remind me every other week to water")
+                && Reminders.asksToRepeat("Remind me every 2 hours to drink"))
+        for line in ["Remind me to send the weekly report at 5pm", "Remind me to join the daily standup at 9",
+                     "Remind me to call each of the kids at 6pm", "Remind me to check every box Friday",
+                     "Remind me to read the Daily Mail at 8"] {
+            check("repeat: not \"\(line)\"", !Reminders.asksToRepeat(line))
+        }
         // Wisp reads every span and clock time itself, so these don't
         // depend on the real clock.
         check("time: a time after a span of days joins it", clock(due(readAt("Remind me in 3 days at 5pm"))) == "10/11 17:00")
@@ -2250,6 +2329,13 @@ enum SelfTests {
         check("task: nothing but a time leaves the line as written", saidAs("Remind me in 10 minutes") == "Remind me in 10 minutes")
         check("task: no time found", saidAs("Remind me to breathe") == "Remind me to breathe")
         check("task: spacing in the time words doesn't matter", saidAs("Remind me in  10   minutes to stretch") == "Stretch")
+        check("task: the word that led to the time goes with it",
+              saidAs("Remind me to pay rent on Friday") == "Pay rent" && saidAs("Remind me to submit by Friday") == "Submit")
+        check("task: …but only when the time closed the line", saidAs("Remind me in 20 that the oven is on") == "The oven is on")
+        check("task: never a lone preposition or punctuation",
+              saidAs("Remind me on Friday") == "Remind me on Friday" && saidAs("Remind me at 5pm ?") == "Remind me at 5pm ?")
+        check("task: more to the time than Wisp took leaves the line as written",
+              saidAs("Remind me Monday or Tuesday to call") == "Remind me Monday or Tuesday to call")
 
         // MARK: - Find: matches after an edit
 
