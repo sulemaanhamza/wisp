@@ -1996,6 +1996,31 @@ enum SelfTests {
                 && CaretTextView.labelAnchor(of: NSRange(location: 0, length: 3), in: "   " as NSString) == nil)
         try? FileManager.default.removeItem(at: storeFolder)
 
+        // MARK: - Editor: text replaced from outside
+
+        // A reload or an archive replaces the text; undo must not then
+        // replay edits made to the old text.
+        let adoptView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        adoptView.allowsUndo = true
+        let adoptWindow = NSWindow(contentRect: adoptView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        adoptWindow.contentView = adoptView
+        let adoptCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { adoptView.string }, set: { _ in }))
+        adoptView.delegate = adoptCoordinator
+        adoptView.insertText("first line of the note\n", replacementRange: NSRange(location: 0, length: 0))
+        adoptView.breakUndoCoalescing()
+        adoptView.insertText("second line", replacementRange: adoptView.selectedRange())
+        check("adopt: typing is undoable beforehand", adoptView.undoManager?.canUndo == true)
+        let adopted = "a synced copy of the note, long enough for the old ranges to land inside it"
+        adoptCoordinator.adopt(adopted, in: adoptView)
+        check("adopt: the new text is shown", adoptView.string == adopted)
+        check("adopt: nothing from the old text is left to undo", adoptView.undoManager?.canUndo == false)
+        adoptView.undoManager?.undo()
+        check("adopt: undo leaves the new text whole", adoptView.string == adopted)
+        adoptView.insertText("!", replacementRange: NSRange(location: (adopted as NSString).length, length: 0))
+        adoptView.undoManager?.undo()
+        check("adopt: edits made afterwards still undo", adoptView.string == adopted)
+        adoptWindow.contentView = nil
+
         // MARK: - Summary
 
         let total = passed + failures.count

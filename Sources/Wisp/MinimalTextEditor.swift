@@ -94,10 +94,7 @@ struct MinimalTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         if textView.string != text {
-            textView.string = text
-            context.coordinator.forgetDrafts()
-            context.coordinator.pendingEdit = nil
-            context.coordinator.lastHighlight = nil
+            context.coordinator.adopt(text, in: textView)
             // Assigning .string drops every attribute. Without a
             // restyle here a note reloaded from disk (iCloud, folder
             // switch) shows literal `---` and flat headings until the
@@ -480,6 +477,20 @@ struct MinimalTextEditor: NSViewRepresentable {
                 let restored = restoredDrafts.remove(draft) != nil
                 if inNote.contains(draft) { reminderStore.commit(line: draft, origin: origin, restored: restored) }
             }
+        }
+
+        /// Show text that came from outside the editor — a reload from
+        /// disk, a folder switch, a note filed to the Inbox.
+        func adopt(_ text: String, in textView: NSTextView) {
+            textView.string = text
+            // The undo stack describes edits to the text that was just
+            // replaced. Left in place, ⌘Z applied those old ranges to the
+            // new note: it deleted runs of a note synced from another Mac,
+            // and raised a range exception on an emptied one.
+            textView.undoManager?.removeAllActions()
+            forgetDrafts()
+            pendingEdit = nil
+            lastHighlight = nil
         }
 
         /// The whole text was replaced from outside (reload, folder
