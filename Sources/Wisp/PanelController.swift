@@ -278,6 +278,13 @@ final class PanelController {
         }
     }
 
+    /// Back to where a fresh launch puts it — AppKit's centre, a little
+    /// above the middle — at the size the user chose. The user asked
+    /// for this placement, so the move observer saves it.
+    func recenter() {
+        panel.center()
+    }
+
     /// With "Open on Pointer's Screen" on, carry the panel to the screen
     /// the pointer is on, at the same place relative to that screen.
     private func moveToPointerScreenIfWanted() {

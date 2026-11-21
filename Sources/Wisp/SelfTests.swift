@@ -1086,7 +1086,7 @@ enum SelfTests {
         check("tips: a marker from the future shows nothing",
               Tips.unseen(since: "99.0.0").isEmpty)
         check("tips: an old marker shows the newest ones",
-              Tips.unseen(since: "0.1.45").allSatisfy { $0.version == "0.1.46" })
+              Tips.unseen(since: "0.1.45").allSatisfy { Tips.isOlder("0.1.45", $0.version) })
         check("tips: an old marker doesn't re-show what they've seen",
               !Tips.unseen(since: "0.1.41").contains { $0.version == "0.1.41" })
         check("tips: a very old marker shows the lot",
