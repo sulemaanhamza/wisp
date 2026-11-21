@@ -180,15 +180,20 @@ enum MarkdownStyler {
             while j < end, j - i < 4, ns.character(at: j) >= 0x30, ns.character(at: j) <= 0x39 { j += 1 }
             guard j < end, ns.character(at: j) == 0x2E else { return 0 }
             j += 1
+        } else if (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A),   // a. B.
+                  ns.character(at: j + 1) == 0x2E {
+            j += 2
         } else {
             return 0
         }
         guard j < end, ns.character(at: j) == 0x20 else { return 0 }
-        j += 1
+        // Every space before the text: "-  item" hangs under "item".
+        while j < end, ns.character(at: j) == 0x20 { j += 1 }
         // "[ ] " after a bullet.
-        if c > 0x39 || c < 0x30, j + 3 < end, ns.character(at: j) == 0x5B, ns.character(at: j + 2) == 0x5D,
-           ns.character(at: j + 3) == 0x20 {
-            j += 4
+        if c == 0x2D || c == 0x2A || c == 0x2B, j + 3 < end, ns.character(at: j) == 0x5B,
+           ns.character(at: j + 2) == 0x5D, ns.character(at: j + 3) == 0x20 {
+            j += 3
+            while j < end, ns.character(at: j) == 0x20 { j += 1 }
         }
         guard j < end else { return 0 }
         // Walk the prefix the way layout does: a tab runs to the next

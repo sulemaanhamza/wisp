@@ -858,8 +858,14 @@ struct MinimalTextEditor: NSViewRepresentable {
 
         /// Tab on a list item nests it; ⇧Tab brings it back out.
         private func indent(in textView: NSTextView, outdent: Bool) -> Bool {
+            let selection = textView.selectedRange()
+            // In a fenced block a lone Tab is a tab: `- name: x` there is
+            // YAML, not a list. A selection over lines still moves.
+            if selection.length == 0, Self.isInCodeBlock(textView, at: min(selection.location, max(0, (textView.string as NSString).length - 1))) {
+                return false
+            }
             guard !textView.hasMarkedText(),
-                  let edit = LineEditing.indent(in: textView.string, selection: textView.selectedRange(), outdent: outdent)
+                  let edit = LineEditing.indent(in: textView.string, selection: selection, outdent: outdent)
             else { return false }
             LineEditing.apply(edit, to: textView)
             return true
@@ -909,6 +915,15 @@ struct MinimalTextEditor: NSViewRepresentable {
 
             guard let marker = SmartEditing.nextListMarker(for: line) else {
                 return false
+            }
+
+            // With text selected, Return replaces it: the list carries on
+            // from a real item, and nothing else is special.
+            let selection = textView.selectedRange()
+            if selection.length > 0 {
+                guard !marker.isEmpty else { return false }
+                replace(in: textView, range: selection, with: "\n" + marker)
+                return true
             }
 
             // Return on an empty nested item steps it out a level, as

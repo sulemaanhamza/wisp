@@ -124,6 +124,11 @@ enum SelfTests {
         check("headings: offsets are where the lines start",
               "a\n# B\n\n### C d".extractHeadings().map(\.lineStart) == [2, 7])
         check("headings: a # mid-line isn't one", "see # this\nand #that".extractHeadings().isEmpty)
+        // The top bar and the styling have to agree on what a heading is.
+        check("headings: a zero-width space isn't the gap", "#\u{200B}foo".extractHeadings().isEmpty)
+        check("headings: a no-break or ideographic space is",
+              "#\u{A0}foo".extractHeadings().map(\.name) == ["foo"] && "#\u{3000}foo".extractHeadings().map(\.name) == ["foo"])
+        check("headings: a form feed is, as the styler has it", "#\u{0C}foo".extractHeadings().map(\.name) == ["foo"])
         check("'# ' empty title → []", "# ".extractHeadings().isEmpty)
         check("'##  ' empty title → []", "##  ".extractHeadings().isEmpty)
 
@@ -2229,6 +2234,52 @@ enum SelfTests {
         nestView.setSelectedRange(NSRange(location: 9, length: 0))
         nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
         check("editor: …in a list item too, rather than nesting it", nestView.string == "- 2 + 2 = 4")
+        // Undo puts the caret back, not a selection over the whole line.
+        nestView.allowsUndo = true
+        let nestWindow = NSWindow(contentRect: nestView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        nestWindow.contentView = nestView
+        nestView.string = "- top\n- foo"
+        nestView.undoManager?.removeAllActions()
+        nestView.setSelectedRange(NSRange(location: 11, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("undo: Tab nested the item", nestView.string == "- top\n\t- foo")
+        nestView.undoManager?.undo()
+        check("undo: the text is back and the caret is where it was",
+              nestView.string == "- top\n- foo" && nestView.selectedRange() == NSRange(location: 11, length: 0))
+        nestView.insertText("!", replacementRange: nestView.selectedRange())
+        check("undo: so the next key adds to the line instead of replacing it", nestView.string == "- top\n- foo!")
+        nestView.string = "milk"
+        nestView.undoManager?.removeAllActions()
+        nestView.setSelectedRange(NSRange(location: 2, length: 0))
+        LineEditing.apply(LineEditing.toggleTask(in: nestView.string, selection: nestView.selectedRange()), to: nestView)
+        nestView.undoManager?.undo()
+        check("undo: ⌘L too", nestView.string == "milk" && nestView.selectedRange() == NSRange(location: 2, length: 0))
+
+        // Return with text selected.
+        nestView.string = "- a\n\t- \n\t- keep\n\t- keep2"
+        nestView.setSelectedRange(NSRange(location: 7, length: 12))
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("return: a selection starting on an empty nested item is replaced, not outdented line by line",
+              !nestView.string.contains("\n- keep") && nestView.string.hasPrefix("- a\n\t- "))
+        nestView.string = "- alpha beta"
+        nestView.setSelectedRange(NSRange(location: 7, length: 5))
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("return: on a list item, the selection goes and the list carries on", nestView.string == "- alpha\n- ")
+
+        // A lone Tab in a fenced block is a tab.
+        nestView.string = "```\n- name: x\n```"
+        MarkdownStyler.restyle(nestView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        nestView.setSelectedRange(NSRange(location: 13, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("code: Tab types a tab rather than nesting the line", nestView.string == "```\n- name: x\t\n```")
+        nestWindow.contentView = nil
+
+        check("shift-tab: a note nested by twos steps by two",
+              indented("- a\n  - b\n    - c", NSRange(location: 16, length: 0), outdent: true)?.0 == "- a\n  - b\n  - c")
+        check("shift-tab: …and one nested by fours by four",
+              indented("- a\n    - b\n        - c", NSRange(location: 22, length: 0), outdent: true)?.0 == "- a\n    - b\n    - c")
+        check("shift-tab: blank lines above are looked past",
+              indented("- a\n  - b\n\n    - c", NSRange(location: 17, length: 0), outdent: true)?.0 == "- a\n  - b\n\n  - c")
         nestCoordinator.stopObservingReminders()
 
         // ⌘L and Tab over several lines change each in place: a set
@@ -2301,6 +2352,9 @@ enum SelfTests {
         check("hang: prose doesn't", hang("plain text") == 0 && hang("-foo") == 0 && hang("a - b") == 0)
         check("hang: nor a marker with nothing after it", hang("- ") == 0 && hang("-") == 0)
         check("hang: nor a year", hang("12345. foo") == 0 && hang("2026 was long") == 0)
+        check("hang: a lettered item", hang("a. foo") > 0 && hang("B. foo") > 0 && hang("ab. foo") == 0)
+        check("hang: two spaces after the marker hang under the text", hang("-  foo") > hang("- foo")
+                && hang("- [ ]  foo") > hang("- [ ] foo"))
         let hangStorage = NSTextStorage(string: "- item\nplain\n\t- [ ] nested\n# - heading\n")
         MarkdownStyler.restyle(hangStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
         func headIndent(_ at: Int) -> CGFloat {

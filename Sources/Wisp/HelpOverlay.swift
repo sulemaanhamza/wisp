@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Everything the help overlay lists, as data. Each row reads "what you
 /// want" on the left, "how" on the right — the way a menu reads — and the
@@ -85,6 +86,8 @@ struct HelpOverlay: View {
     var newTips: [Tip] = []
     let onDismiss: () -> Void
 
+    @State private var monitor: Any?
+
     var body: some View {
         ZStack {
             // Tap-anywhere-to-dismiss surface. Near-opaque so the help
@@ -118,6 +121,27 @@ struct HelpOverlay: View {
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
             }
+        }
+        .onAppear { startListening() }
+        .onDisappear { stopListening() }
+    }
+
+    /// The note keeps the keyboard under the sheet, and the sheet hides
+    /// it: anything typed would land in a note nobody can see. So the
+    /// first key puts the sheet away and goes on to the note. Not ⌘
+    /// shortcuts (⌘/ closes it itself), and not Esc, which the panel
+    /// already takes as "close this".
+    private func startListening() {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if !event.modifierFlags.contains(.command), event.keyCode != 53 { onDismiss() }
+            return event
+        }
+    }
+
+    private func stopListening() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
     }
 

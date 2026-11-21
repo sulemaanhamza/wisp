@@ -43,14 +43,14 @@ extension String {
             // One to six, then at least one space before the name.
             if level <= 6, i < end, Self.isHeadingSpace(units[i]) {
                 while i < end, Self.isHeadingSpace(units[i]) { i += 1 }
-                var nameEnd = end
-                while nameEnd > i, Self.isHeadingSpace(units[nameEnd - 1]) { nameEnd -= 1 }
-                if nameEnd > i {
-                    result.append(Heading(
-                        name: ns.substring(with: NSRange(location: i, length: nameEnd - i)),
-                        level: level,
-                        lineStart: lineStart
-                    ))
+                // A vertical tab or form feed ends the name, as it did
+                // when a regex read it.
+                var nameEnd = i
+                while nameEnd < end, units[nameEnd] != 0x0B, units[nameEnd] != 0x0C { nameEnd += 1 }
+                let name = ns.substring(with: NSRange(location: i, length: nameEnd - i))
+                    .trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty {
+                    result.append(Heading(name: name, level: level, lineStart: lineStart))
                 }
             }
             i = end
@@ -59,10 +59,14 @@ extension String {
         return result
     }
 
+    /// What the styler's `\s` takes for the gap after the hashes, so
+    /// the top bar and the styling agree on what a heading is: space,
+    /// tab, vertical tab, form feed and the Unicode space separators.
+    /// Not zero-width characters.
     private static func isHeadingSpace(_ c: unichar) -> Bool {
-        if c == 0x20 || c == 0x09 { return true }
+        if c == 0x20 || c == 0x09 || c == 0x0B || c == 0x0C { return true }
         guard c > 0x7F, let scalar = UnicodeScalar(c) else { return false }
-        return CharacterSet.whitespaces.contains(scalar)
+        return scalar.properties.generalCategory == .spaceSeparator
     }
 
     private static func isLineBreak(_ c: unichar) -> Bool {
