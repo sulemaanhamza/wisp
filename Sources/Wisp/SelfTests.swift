@@ -2021,6 +2021,73 @@ enum SelfTests {
         check("adopt: edits made afterwards still undo", adoptView.string == adopted)
         adoptWindow.contentView = nil
 
+        // MARK: - Updater: stale markers
+
+        check("updater: a failed 0.1.46 is stale once 0.1.46 is running", Updater.isSuperseded("0.1.46", by: "0.1.46"))
+        check("updater: …and once something newer is", Updater.isSuperseded("0.1.46", by: "0.1.47"))
+        check("updater: a pending 0.1.47 isn't stale on 0.1.46", !Updater.isSuperseded("0.1.47", by: "0.1.46"))
+        check("updater: versions compare as numbers", !Updater.isSuperseded("0.1.10", by: "0.1.9"))
+
+        // MARK: - StorageLocation: switching folders
+
+        let switchRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wisp-switch-\(UUID().uuidString)")
+        let ownDir = switchRoot.appendingPathComponent("own")
+        let syncA = switchRoot.appendingPathComponent("syncA")
+        let syncB = switchRoot.appendingPathComponent("syncB")
+        for dir in [ownDir, syncA, syncB] {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let switchSuite = "wisp-switch-\(UUID().uuidString)"
+        let switchDefaults = UserDefaults(suiteName: switchSuite)!
+        func read(_ url: URL) -> String? { try? String(contentsOf: url, encoding: .utf8) }
+        let ownNote = StorageLocation.scratchpadURL(in: ownDir)
+        let noteA = StorageLocation.scratchpadURL(in: syncA)
+        let noteB = StorageLocation.scratchpadURL(in: syncB)
+        try? "local".write(to: ownNote, atomically: true, encoding: .utf8)
+
+        let toEmpty = try? StorageLocation.setFolder(
+            syncA, currentText: "local", from: ownNote, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: the note moves to an empty folder",
+              read(noteA) == "local" && toEmpty?.loadedExisting == false && toEmpty?.backupURL == nil)
+        check("switch: …and leaves Wisp's own folder", !FileManager.default.fileExists(atPath: ownNote.path))
+        check("switch: the choice is remembered",
+              switchDefaults.string(forKey: StorageLocation.folderKey) == syncA.path)
+
+        let betweenSynced = try? StorageLocation.setFolder(
+            syncB, currentText: "local", from: noteA, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: leaving a synced folder doesn't delete the note other Macs use",
+              read(noteA) == "local" && read(noteB) == "local" && betweenSynced != nil)
+
+        try? "theirs".write(to: noteA, atomically: true, encoding: .utf8)
+        let joined = try? StorageLocation.setFolder(
+            syncA, currentText: "mine", from: noteB, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: an existing note is loaded", joined?.newText == "theirs" && joined?.loadedExisting == true)
+        check("switch: …and the local text is backed up beside the old one",
+              joined?.backupURL.flatMap(read) == "mine"
+                && joined?.backupURL?.deletingLastPathComponent().standardizedFileURL.path == syncB.standardizedFileURL.path)
+
+        try? "theirs".write(to: noteB, atomically: true, encoding: .utf8)
+        let same = try? StorageLocation.setFolder(
+            syncB, currentText: "theirs", from: noteA, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: no backup when the local text says the same thing",
+              same?.backupURL == nil && same?.loadedExisting == true)
+        let blank = try? StorageLocation.setFolder(
+            syncA, currentText: "", from: noteB, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: no backup of an empty note", blank?.backupURL == nil && blank?.newText == "theirs")
+
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: noteB)
+        var unreadableThrew = false
+        do {
+            _ = try StorageLocation.setFolder(
+                syncB, currentText: "mine", from: noteA, ownFolder: ownDir, defaults: switchDefaults)
+        } catch { unreadableThrew = true }
+        check("switch: an unreadable note stops the switch",
+              unreadableThrew && switchDefaults.string(forKey: StorageLocation.folderKey) == syncA.path
+                && read(noteA) == "theirs")
+        try? FileManager.default.removeItem(at: switchRoot)
+        switchDefaults.removePersistentDomain(forName: switchSuite)
+
         // MARK: - Summary
 
         let total = passed + failures.count
