@@ -10,6 +10,8 @@ struct FindBar: View {
     @Binding var query: String
     let matchCount: Int
     let currentIndex: Int   // 1-based; 0 when no matches
+    /// Changes when ⌘F is pressed with the bar already showing.
+    let focusToken: Int
     let onNext: () -> Void
     let onPrev: () -> Void
     let onClose: () -> Void
@@ -59,6 +61,12 @@ struct FindBar: View {
             DispatchQueue.main.async { focused = true }
         }
         .onDisappear { stopListening() }
+        // Flipped off and on: the field only selects its text again
+        // when it gains the keyboard afresh.
+        .onChange(of: focusToken) { _ in
+            focused = false
+            DispatchQueue.main.async { focused = true }
+        }
     }
 
     private var countLabel: String {

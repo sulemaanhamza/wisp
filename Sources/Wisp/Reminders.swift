@@ -48,6 +48,22 @@ enum Reminders {
 
     static func isReminder(_ line: String) -> Bool { body(ofLine: line) != nil }
 
+    /// "every day", "each Monday", "daily" — but not "every box", "each
+    /// of the kids" or "the weekly report", which are the task talking.
+    private static let repeatWords = try! NSRegularExpression(
+        pattern: #"\b(?:every|each)\s+(?:other\s+)?(?:\d+\s+)?(?:day|morning|afternoon|evening|night|week|weekday|weekend|month|year|hour|minute|"#
+            + #"mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)s?\b"#
+            + #"|(?<!\bthe\s)(?<!\ba\s)(?<!\bmy\s)(?<!\bour\s)\b(?:daily|weekly|monthly|yearly)\b"#,
+        options: .caseInsensitive
+    )
+
+    /// "every day", "weekly": the line asks for something Wisp doesn't
+    /// do. It's reminded once, and its label says so.
+    static func asksToRepeat(_ line: String) -> Bool {
+        guard let body = body(ofLine: line) else { return false }
+        return repeatWords.firstMatch(in: body, range: NSRange(location: 0, length: (body as NSString).length)) != nil
+    }
+
     /// A cheap first look before reading a line: does "remind me" come
     /// near its start, after at most indentation and a marker? Nearly
     /// every line fails here, so restyles and redraws of a large note
@@ -78,6 +94,53 @@ enum Reminders {
         let start = marker.firstMatch(in: line, range: NSRange(location: 0, length: ns.length))
             .map { NSMaxRange($0.range) } ?? 0
         return ns.substring(from: start).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let leadIn = try! NSRegularExpression(
+        pattern: #"^(?:to|that|about)\s+"#, options: .caseInsensitive
+    )
+
+    /// What the notification says: the task, without "Remind me" and
+    /// the words that named the time — "Check the oven", not "Remind me
+    /// in 10 minutes to check the oven". Only when those words open or
+    /// close the line; otherwise, and when nothing else is left, the
+    /// line as written.
+    static func task(ofLine line: String, phrase: String) -> String {
+        let whole = sentence(ofLine: line)
+        guard let body = body(ofLine: line), !phrase.isEmpty else { return whole }
+        // The phrase is kept with single spaces; match it loosely.
+        let words = phrase.split(separator: " ").map { NSRegularExpression.escapedPattern(for: String($0)) }
+        let loose = words.joined(separator: #"\s+"#)
+        let ns = body as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        var rest: String?
+        var closed = false
+        if let opening = try? NSRegularExpression(pattern: "^" + loose + #"(?=[\s,:]|$)"#, options: .caseInsensitive),
+           let m = opening.firstMatch(in: body, range: all) {
+            rest = ns.substring(from: NSMaxRange(m.range))
+        } else if let closing = try? NSRegularExpression(pattern: #"(?<=\s)"# + loose + #"\s*[.!]?$"#, options: .caseInsensitive),
+                  let m = closing.firstMatch(in: body, range: all) {
+            rest = ns.substring(to: m.range.location)
+            closed = true
+        }
+        guard var task = rest?.trimmingCharacters(in: CharacterSet(charactersIn: " \t,:;-–—")) else { return whole }
+        // "Monday or Tuesday to call": there was more to the time than
+        // the words Wisp took.
+        if task.range(of: #"^(?:or|and|from)\b"#, options: [.regularExpression, .caseInsensitive]) != nil { return whole }
+        let taskNS = task as NSString
+        if let m = leadIn.firstMatch(in: task, range: NSRange(location: 0, length: taskNS.length)) {
+            task = taskNS.substring(from: NSMaxRange(m.range))
+        }
+        // "pay rent on December 1st" leaves "pay rent on": the word that
+        // led to the time goes with it.
+        if closed, let dangling = task.range(of: #"\s*\b(?:on|by|at|in|to|before|until|this|next)$"#,
+                                             options: [.regularExpression, .caseInsensitive]) {
+            task.removeSubrange(dangling)
+        }
+        guard task.contains(where: { $0.isLetter || $0.isNumber }),
+              task.range(of: #"^(?:on|by|at|in|before|until|to)$"#, options: [.regularExpression, .caseInsensitive]) == nil,
+              let first = task.first else { return whole }
+        return first.uppercased() + task.dropFirst()
     }
 
     // MARK: Reading the time
@@ -200,11 +263,28 @@ enum Reminders {
         let detected = detect(ns, hiding: claimed, now: now, calendar: calendar)
         days += detected.days
         clocks += detected.clocks
-        let anchor = days.min { $0.range.location < $1.range.location }
+        // The first day named is the anchor — unless it describes
+        // something ("the Friday meeting") and another names when.
+        // A day with such a time straight after it goes with it: "the
+        // Friday 3pm demo".
+        func first<T>(_ items: [T], _ range: (T) -> NSRange, aside: (T) -> Bool) -> T? {
+            let telling = items.filter { !aside($0) }
+            return (telling.isEmpty ? items : telling).min { range($0).location < range($1).location }
+        }
+        let asideClocks = clocks.filter { describesTask($0.range, in: ns) }.map(\.range)
+        func isAside(_ day: Day) -> Bool {
+            if describesTask(day.range, in: ns) { return true }
+            return asideClocks.contains { clock in
+                clock.location >= NSMaxRange(day.range)
+                    && ns.substring(with: NSRange(location: NSMaxRange(day.range), length: clock.location - NSMaxRange(day.range)))
+                        .allSatisfy { $0 == " " || $0 == "\t" }
+            }
+        }
+        let anchor = first(days, { $0.range }, aside: isAside)
 
         // "in 10 minutes": a span from now, whatever else the line says —
-        // if it comes first.
-        if let moment, moment.range.location < anchor?.range.location ?? .max {
+        // if it comes before the day, or the day is the task talking.
+        if let moment, anchor.map({ moment.range.location < $0.range.location || isAside($0) }) ?? true {
             return moment.date.map { (.at($0), moment.phrase) } ?? (.noTime, moment.phrase)
         }
         // An exact time stands. A part of the day ("in the evening",
@@ -212,7 +292,7 @@ enum Reminders {
         // time's words.
         let partClock = clocks.first { $0.part != nil }
         let part = partClock?.part ?? anchor?.time?.part
-        var clock = clocks.filter { $0.part == nil }.min { $0.range.location < $1.range.location } ?? partClock
+        var clock = first(clocks.filter { $0.part == nil }, { $0.range }, aside: { describesTask($0.range, in: ns) }) ?? partClock
         if let chosen = clock, chosen.ambiguous, let partClock, partClock.range != chosen.range {
             clock?.phrase = "\(chosen.phrase) \(partClock.phrase)"
         }
@@ -257,6 +337,58 @@ enum Reminders {
         return (.at(at(settled, clock.minute, on: tomorrow, calendar: calendar)), clock.phrase)
     }
 
+    /// Words a day or time can be followed by and still be saying when:
+    /// "Friday at 3", "tomorrow to call", "at 7 tonight".
+    private static let afterWhen: Set<String> = [
+        "at", "to", "in", "on", "by", "for", "about", "with", "before", "after", "if", "when", "so", "because",
+        "and", "or", "then", "but", "please", "sharp", "latest", "next", "this", "today", "tonight", "tomorrow",
+        "morning", "afternoon", "evening", "night", "am", "pm", "a", "p",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "mon", "tue", "tues", "wed", "weds", "thu", "thur", "thurs", "fri", "sat", "sun",
+    ]
+    private static let determiners: Set<String> = ["the", "a", "an", "my", "our", "your", "his", "her", "their", "that"]
+    /// Things that have a day or a time of their own.
+    private static let dated: Set<String> = [
+        "meeting", "meetings", "call", "report", "deadline", "launch", "standup", "demo", "appointment", "flight",
+        "class", "session", "party", "event", "review", "release", "delivery", "table", "booking", "reservation",
+        "invoice", "shift", "game", "show", "trip",
+    ]
+
+    /// A day or time that names a thing rather than a moment: "the
+    /// Friday meeting", "the 7pm table", "Monday report". It has to be
+    /// plain that it does — "the" before it and a word after, or one of
+    /// a few things that carry a date straight after. Anything less
+    /// sure is taken as saying when: "at 3pm from school", "Tuesday not
+    /// Wednesday". Never the words that open the line.
+    private static func describesTask(_ range: NSRange, in ns: NSString) -> Bool {
+        guard range.location > 0, let next = word(after: NSMaxRange(range), in: ns) else { return false }
+        if dated.contains(next) { return true }
+        guard !afterWhen.contains(next), let before = word(before: range.location, in: ns) else { return false }
+        return determiners.contains(before)
+    }
+
+    private static func isLetter(_ c: unichar) -> Bool {
+        UnicodeScalar(c).map(CharacterSet.letters.contains) ?? false
+    }
+
+    /// The word starting right after `index`, past spaces; nil when
+    /// what follows isn't a word.
+    private static func word(after index: Int, in ns: NSString) -> String? {
+        var i = index
+        while i < ns.length, ns.character(at: i) == 0x20 || ns.character(at: i) == 0x09 { i += 1 }
+        var end = i
+        while end < ns.length, isLetter(ns.character(at: end)) { end += 1 }
+        return end > i ? ns.substring(with: NSRange(location: i, length: end - i)).lowercased() : nil
+    }
+
+    private static func word(before index: Int, in ns: NSString) -> String? {
+        var end = index
+        while end > 0, ns.character(at: end - 1) == 0x20 || ns.character(at: end - 1) == 0x09 { end -= 1 }
+        var start = end
+        while start > 0, isLetter(ns.character(at: start - 1)) { start -= 1 }
+        return end > start ? ns.substring(with: NSRange(location: start, length: end - start)).lowercased() : nil
+    }
+
     /// An hour written without am/pm on a named day, as macOS reads
     /// "tomorrow at 3": 7–11 morning, 12 noon, 1–6 afternoon — unless a
     /// part of the day says which.
@@ -284,28 +416,45 @@ enum Reminders {
 
     // MARK: Spans
 
-    private static let amount = #"(?:half\s+an|a\s+couple\s+of|\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty-five|forty|fifty|sixty|ninety)"#
-    private static let unit = #"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?)"#
+    private static let amount = #"(?:half\s+an|a\s+couple(?:\s+of)?|a\s+few|\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty-five|forty|fifty|sixty|ninety)"#
+    private static let unit = #"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|years?|yrs?)"#
     /// "10m", "2h": a bare letter only straight after a number — "in AM"
     /// and "in 5 m" aren't spans.
     private static let shortUnit = #"(\d+(?:\.\d+)?)([mh])"#
     private static let spanPattern = try! NSRegularExpression(
-        pattern: #"\bin\s+(?:("# + amount + #")\s*("# + unit + #")|"# + shortUnit + #")\b"#, options: .caseInsensitive
+        pattern: #"\bin\s+(?:("# + amount + #")(\s+and\s+a\s+half)?\s*("# + unit + #")|"# + shortUnit + #")\b"#, options: .caseInsensitive
     )
+    /// "10 minutes from now", "a week from now".
+    private static let fromNowPattern = try! NSRegularExpression(
+        pattern: #"\b("# + amount + #")(\s+and\s+a\s+half)?\s*("# + unit + #")\s+from\s+now\b()()"#, options: .caseInsensitive
+    )
+    /// "in 20": minutes, but only opening the line, and only when what
+    /// follows can't be a unit Wisp failed to read: nothing, or "to …".
+    /// "in 3 business days" and "in 1 to 2 hours" set nothing rather
+    /// than something three minutes away.
+    private static let bareSpanPattern = try! NSRegularExpression(
+        pattern: #"^in\s+(\d{1,3})(?=\s*$|\s*[,:]\s|\s+(?:to|that|about)\s+(?!\d))"#, options: .caseInsensitive
+    )
+    /// A span already begun before "… from now": "1 hour 30 minutes
+    /// from now" isn't thirty minutes.
+    private static let spanBefore = try! NSRegularExpression(
+        pattern: #"(?:"# + unit + #"|half)\s*,?\s*(?:and\s*)?$"#, options: .caseInsensitive
+    )
+    private static let fromNowTail = try! NSRegularExpression(pattern: #"\s+from\s+now\b"#, options: .caseInsensitive)
     /// More of the same span: "… and a half", "… 30 minutes".
     private static let spanMorePattern = try! NSRegularExpression(
         pattern: #"\s*,?\s*(?:and\s+)?(?:(a\s+half)|("# + amount + #")\s*("# + unit + #")|"# + shortUnit + #")\b"#,
         options: .caseInsensitive
     )
     private static let numberWords: [String: Double] = [
-        "a": 1, "an": 1, "a couple of": 2, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+        "a": 1, "an": 1, "a couple of": 2, "a couple": 2, "a few": 3, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
         "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20,
         "thirty": 30, "forty": 40, "forty-five": 45, "fifty": 50, "sixty": 60, "ninety": 90,
     ]
 
     private static func unitRank(_ unit: String) -> Int {
         let unit = unit.lowercased()
-        return unit.hasPrefix("mo") ? 5 : unit.hasPrefix("w") ? 4 : unit.hasPrefix("d") ? 3
+        return unit.hasPrefix("y") ? 6 : unit.hasPrefix("mo") ? 5 : unit.hasPrefix("w") ? 4 : unit.hasPrefix("d") ? 3
             : unit.hasPrefix("h") ? 2 : unit.hasPrefix("m") ? 1 : 0
     }
 
@@ -317,11 +466,24 @@ enum Reminders {
 
     private static func readSpan(_ ns: NSString, now: Date, calendar: Calendar, claimed: inout [NSRange]) -> SpanReading? {
         let body = ns as String
-        guard let first = spanPattern.firstMatch(in: body, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        let all = NSRange(location: 0, length: ns.length)
         func group(_ m: NSTextCheckingResult, _ i: Int) -> String? {
             m.range(at: i).location != NSNotFound ? ns.substring(with: m.range(at: i)) : nil
         }
-        var parts = [(amount: group(first, 1) ?? group(first, 3) ?? "", unit: group(first, 2) ?? group(first, 4) ?? "")]
+        let fromNow = fromNowPattern.firstMatch(in: body, range: all).flatMap { m in
+            spanBefore.firstMatch(in: body, range: NSRange(location: 0, length: m.range.location)) == nil ? m : nil
+        }
+        guard let first = spanPattern.firstMatch(in: body, range: all) ?? fromNow else {
+            guard let bare = bareSpanPattern.firstMatch(in: body, range: all),
+                  let minutes = group(bare, 1).flatMap(Double.init), minutes > 0 else { return nil }
+            claimed.append(bare.range)
+            return .moment(Moment(
+                range: bare.range, phrase: ns.substring(with: bare.range).trimmingCharacters(in: .whitespaces),
+                date: now.addingTimeInterval(minutes * 60)
+            ))
+        }
+        var parts = [(amount: group(first, 1) ?? group(first, 4) ?? "", unit: group(first, 3) ?? group(first, 5) ?? "")]
+        if group(first, 2) != nil { parts.append((amount: "half", unit: parts[0].unit)) }
         var end = NSMaxRange(first.range)
         // "1 hour 30 minutes", "2 hours and 15 minutes": each part smaller
         // than the last, so "in 10 minutes 2 days before the trip" stops
@@ -336,6 +498,10 @@ enum Reminders {
             parts.append(next)
             end = NSMaxRange(more.range)
         }
+        // "in 2 hours from now" is the same two hours.
+        if let tail = fromNowTail.firstMatch(in: body, options: .anchored, range: NSRange(location: end, length: ns.length - end)) {
+            end = NSMaxRange(tail.range)
+        }
         let range = NSRange(location: first.range.location, length: end - first.range.location)
         let phrase = ns.substring(with: range)
         claimed.append(range)
@@ -345,7 +511,9 @@ enum Reminders {
             let key = part.amount.lowercased().replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             let value = key.hasPrefix("half") ? 0.5 : Double(key) ?? numberWords[key] ?? 0
             let unit = part.unit.lowercased()
-            if unit.hasPrefix("mo") {
+            if unit.hasPrefix("y") {
+                months += value * 12
+            } else if unit.hasPrefix("mo") {
                 months += value
             } else if unit.hasPrefix("w") {
                 days += value * 7
@@ -381,12 +549,27 @@ enum Reminders {
         pattern: #"\b(?:(next)|this|the|on\s+the|at\s+the|over\s+the)\s+weekend\b(?!['’]s)"#, options: .caseInsensitive
     )
 
+    /// "next month", "next year": the same day of it. Only opening the
+    /// line or closing it, where the time is said, and not after "for"
+    /// or "about" — "pay for next month tomorrow" is tomorrow.
+    private static let nextMonthPattern = try! NSRegularExpression(
+        pattern: #"(?:^|(?<!\bfor\s)(?<!\babout\s)(?<!\bof\s)(?<=\s))next\s+(month|year)\b(?!['’]s)(?=\s+to\b|\s*[,:]|\s*[.!]?\s*$)"#,
+        options: .caseInsensitive
+    )
+
     private static func readWeeks(_ ns: NSString, now: Date, calendar: Calendar, claimed: inout [NSRange]) -> [Day] {
         let body = ns as String
         let all = NSRange(location: 0, length: ns.length)
         let today = calendar.startOfDay(for: now)
         let weekday = calendar.component(.weekday, from: today)  // 1 Sunday … 7 Saturday
         var days: [Day] = []
+        if let m = nextMonthPattern.firstMatch(in: body, range: all), !overlaps(m.range, claimed),
+           let day = calendar.date(
+            byAdding: ns.substring(with: m.range(at: 1)).lowercased() == "year" ? .year : .month, value: 1, to: today
+           ) {
+            days.append(Day(range: m.range, phrase: ns.substring(with: m.range), date: day))
+            claimed.append(m.range)
+        }
         if let m = nextWeekPattern.firstMatch(in: body, range: all), !overlaps(m.range, claimed) {
             // Weeks start on Monday here: next week is the coming Monday on.
             let toMonday = (9 - weekday) % 7 == 0 ? 7 : (9 - weekday) % 7
@@ -461,7 +644,6 @@ enum Reminders {
                 days.append(Day(range: m.range, phrase: ns.substring(with: m.range), date: day, time: time))
                 claimed.append(m.range)
             }
-            break
         }
         if let m = ordinalPattern.firstMatch(in: body, range: all), !overlaps(m.range, claimed),
            let number = [m.range(at: 1), m.range(at: 2)].first(where: { $0.location != NSNotFound }),
@@ -503,11 +685,16 @@ enum Reminders {
 
     // MARK: Clock times
 
-    private enum ClockForm { case meridiem, digits, named, part, endOfDay }
+    private enum ClockForm { case meridiem, digits, spoken, named, part, endOfDay }
 
     private static let atWord = #"(?:\bat\s*|@\s*)"#
     /// Each way of writing a time, and how its match becomes one.
     private static let clockPatterns: [(NSRegularExpression, ClockForm)] = ([
+        // "at half past 5", "quarter to 6 to leave" — with "at", or with
+        // nothing after it that it could be counting: "drop a quarter
+        // to 3 kids" is the task.
+        (atWord + #"(?:a\s+)?(half|quarter)\s+(past|to)\s+(\d{1,2})\b(?![:.]\d)"#, .spoken),
+        (#"\b(?:a\s+)?(half|quarter)\s+(past|to)\s+(\d{1,2})\b(?=\s*[,.!]?\s*$|\s+(?:to|on|today|tonight|tomorrow)\b)"#, .spoken),
         // "3pm", "at 3:30 pm", "3.30pm", "3 p.m."
         (#"(?:"# + atWord + #")?\b(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?\s?m\b\.?"#, .meridiem),
         // "at 3p", "@3a"
@@ -568,6 +755,14 @@ enum Reminders {
             // "09:30", "15:00", "at 0": a 24-hour clock, taken as written.
             let ambiguous = (1...12).contains(hour) && !written.hasPrefix("0")
             return Clock(range: m.range, phrase: phrase, hour: hour, minute: minute, ambiguous: ambiguous)
+        case .spoken:
+            guard let named = group(3).flatMap(Int.init), (1...12).contains(named) else { return nil }
+            let past = group(2)?.lowercased() == "past"
+            let minute = group(1)?.lowercased() == "half" ? 30 : past ? 15 : 45
+            // "half to" isn't said; "quarter to 6" is 5:45.
+            guard past || minute == 45 else { return nil }
+            let hour = past ? named : named == 1 ? 12 : named - 1
+            return Clock(range: m.range, phrase: phrase, hour: hour, minute: minute, ambiguous: true)
         case .named:
             let word = (group(1) ?? group(2) ?? group(3) ?? "").lowercased()
             let hour = word == "midnight" ? 24 : word.hasPrefix("dinner") ? 19 : 12
@@ -686,6 +881,14 @@ enum Reminders {
             case .set: return "bell"
             case .sent: return "checkmark.circle"
             default: return nil
+            }
+        }
+
+        /// Whether the text is a time still to come.
+        var namesTime: Bool {
+            switch self {
+            case .due, .set: return true
+            default: return false
             }
         }
 

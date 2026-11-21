@@ -117,6 +117,18 @@ enum SelfTests {
         check("nested names",  nested.map(\.name) == ["A", "B", "C"])
 
         check("'#NoSpace' → []", "#NoSpace".extractHeadings().isEmpty)
+        check("headings: seven hashes isn't one", "####### deep".extractHeadings().isEmpty)
+        check("headings: hashes and spaces alone aren't one", "##   \n# ".extractHeadings().isEmpty)
+        check("headings: CRLF lines, names without the break",
+              "# One\r\ntext\r\n## Two  \r\n".extractHeadings().map(\.name) == ["One", "Two"])
+        check("headings: offsets are where the lines start",
+              "a\n# B\n\n### C d".extractHeadings().map(\.lineStart) == [2, 7])
+        check("headings: a # mid-line isn't one", "see # this\nand #that".extractHeadings().isEmpty)
+        // The top bar and the styling have to agree on what a heading is.
+        check("headings: a zero-width space isn't the gap", "#\u{200B}foo".extractHeadings().isEmpty)
+        check("headings: a no-break or ideographic space is",
+              "#\u{A0}foo".extractHeadings().map(\.name) == ["foo"] && "#\u{3000}foo".extractHeadings().map(\.name) == ["foo"])
+        check("headings: a form feed is, as the styler has it", "#\u{0C}foo".extractHeadings().map(\.name) == ["foo"])
         check("'# ' empty title → []", "# ".extractHeadings().isEmpty)
         check("'##  ' empty title → []", "##  ".extractHeadings().isEmpty)
 
@@ -1005,6 +1017,76 @@ enum SelfTests {
             ("not a sum =", nil),
             ("12 × 4.5 + 20", nil),
             ("=", nil),
+            // The question asked the other way round, not "50% of 200".
+            ("50 is what % of 200 =", "25%"),
+            ("$30 is what percent of $120 =", "25%"),
+            ("5 is what % of 0 =", nil),
+            ("50 is what% of 200 =", "25%"),
+            ("30 min is what % of 2 h =", "25%"),
+            ("500 g is what % of 2 kg =", "25%"),
+            ("$50 is what % of €200 =", nil),
+            ("5 km is what % of 10 kg =", nil),
+            ("15% is what % of 60 =", nil),
+            ("10% off 80 =", "72"),
+            ("10% off $80 =", "$72"),
+            ("day off 3 + 4 =", "7"),
+            ("3 days off + 2 days off =", "5 d"),
+            ("$20 off coupon + $5 =", "$25"),
+            // A rate: the unit is what the money is per.
+            ("5 hrs * $40 =", "$200"),
+            ("$40 × 5 hrs =", "$200"),
+            ("$200 / 8 hrs =", "$25"),
+            ("5 hrs / $40 =", nil),
+            ("3 days × $200 =", "$600"),
+            // Per minute, or per hour? No answer beats a wrong one.
+            ("90 min × $40 =", nil),
+            ("20 c × $3 =", nil),
+            ("5 km × $2 =", nil),
+            // Time comes back the way it's said, unless a unit was asked for.
+            ("2 h + 45 min =", "2 h 45 min"),
+            ("1 day - 1 h =", "23 h"),
+            ("3 d + 12 h =", "3 d 12 h"),
+            ("7 h / 3 =", "2 h 20 min"),
+            ("0.5 h + 0.25 h =", "45 min"),
+            ("1.5 h + 1.5 h =", "3 h"),
+            // A whole number a hair off in floating point.
+            ("2 h - 40 min - 20 min =", "1 h"),
+            ("1 h + 40 min + 20 min =", "2 h"),
+            ("3 h - 50 min - 10 min =", "2 h"),
+            ("1 h + 20 s =", "1.01 h"),
+            ("90 min in h =", "1.5 h"),
+            ("2 h + 45 min in h =", "2.75 h"),
+            // A label closed with a colon may hold a number.
+            ("Week 2: 40 + 30 =", "70"),
+            ("2 people: 90 / 2 =", "45"),
+            // A time, a score, a sum: not labels.
+            ("10: 30 + 15 =", nil),
+            ("Score 2 : 1 + 1 =", nil),
+            ("2 + 3: 4 + 5 =", nil),
+            ("5 ft 10 in in cm =", "177.8 cm"),
+            ("2 cups in ml =", "480 ml"),
+            ("1.5 l + 250 ml =", "1.75 L"),
+            ("12 stone in kg =", "76.2 kg"),
+            ("70 kg in stone =", "11.02 stone"),
+            ("11.02 stone in kg =", "69.98 kg"),
+            ("240 ml in cups =", "1 cup"),
+            // Sums that read these as plain words before still do.
+            ("2 cup holders + 2 =", "4"),
+            ("2 cups flour + 1 cup sugar =", "3"),
+            ("300 mi / 12 gal =", "25 mi"),
+            ("100 km / 8 l =", "12.5 km"),
+            ("2 cups + 1 cup =", "3 cups"),
+            ("1 l / 250 ml =", "4"),
+            ("3 cups * $2 =", "$6"),
+            ("$3.50 * 12 gal =", "$42"),
+            ("5 l + 5 =", "10 L"),
+            ("3 cups * 250 ml =", "750 ml"),
+            ("100 - 20% off =", "80"),
+            // A list of labels would answer for the last and drop the rest.
+            ("Mon 3 h, Tue: 2 h + 1 h =", nil),
+            ("Subtotal 40, tax: 40 * 0.2 =", nil),
+            ("5 kgs + 2 kg =", "7 kg"),
+            ("3 l =", nil),
         ]
         for (line, expected) in sums {
             check("math: \"\(line)\" → \(expected ?? "nothing")", InlineMath.answer(forLine: line) == expected)
@@ -1252,6 +1334,90 @@ enum SelfTests {
         check("time: in the morning, before 9, is today", clock(due(readAt("Remind me in the morning", early))) == "10/8 9:00")
         check("time: the phrase is what matched",
               Reminders.read("Remind me in 10 minutes to check this", now: thursday, calendar: karachi)?.phrase == "in 10 minutes")
+
+        // A day or time that describes the task gives way to one that
+        // says when. Weekdays and spans only: Wisp reads those itself,
+        // so these don't depend on the real clock.
+        check("time: 'the Tuesday call' isn't when", due(readAt("Remind me to move the Tuesday call, in 10 minutes")) == thursday.addingTimeInterval(600))
+        check("time: 'Monday meeting' isn't when", clock(due(readAt("Remind me to prep for Monday meeting on Sunday"))) == "10/11 9:00")
+        check("time: 'the Monday report' isn't when", clock(due(readAt("Remind me to send the Monday report Friday at 3pm"))) == "10/9 15:00")
+        check("time: 'the 7pm table' isn't when", clock(due(readAt("Remind me to book the 7pm table, Friday at 10am"))) == "10/9 10:00")
+        check("time: a day in the task is still read when it's the only one",
+              clock(due(readAt("Remind me to cancel the Friday meeting"))) == "10/9 9:00")
+        check("time: …and so is a time", clock(due(readAt("Remind me Friday to book 7pm dinner"))) == "10/9 19:00")
+        check("time: a day followed by 'about' says when", clock(due(readAt("Remind me to call Bob Friday about the trip"))) == "10/9 9:00")
+        check("time: the opening words always say when", clock(due(readAt("Remind me Friday morning call the Monday team"))) == "10/9 9:00")
+
+        check("time: in 20 is minutes", due(readAt("Remind me in 20 to stretch")) == thursday.addingTimeInterval(1200))
+        check("time: in 20, then a comma", due(readAt("Remind me in 20, call mum")) == thursday.addingTimeInterval(1200))
+        check("time: in 5 and nothing else", due(readAt("Remind me in 5")) == thursday.addingTimeInterval(300))
+        // A number Wisp can't put a unit to sets nothing — never
+        // something a few minutes away.
+        for line in ["Remind me in 3 business days", "Remind me in 1 to 2 hours", "Remind me in 2 or 3 hours",
+                     "Remind me in 6 mo", "Remind me in 5 mintues", "Remind me the code is in 123",
+                     "Remind me to put in 20", "Remind me to dial in 5", "Remind me to stretch in 20"] {
+            check("time: no time in \"\(line)\"", readAt(line) == .noTime)
+        }
+        check("time: 'put in 20 dollars' is the task", readAt("Remind me to put in 20 dollars") == .noTime)
+        check("time: 'in 2026' isn't minutes", readAt("Remind me in 2026 to renew") == .noTime)
+        check("time: 'log in 2 times' is the task", readAt("Remind me to log in 2 times") == .noTime)
+        check("time: in a few minutes", due(readAt("Remind me in a few minutes to check")) == thursday.addingTimeInterval(180))
+        check("time: in a couple hours", due(readAt("Remind me in a couple hours")) == thursday.addingTimeInterval(7200))
+        check("time: in 2 and a half hours", due(readAt("Remind me in 2 and a half hours to leave")) == thursday.addingTimeInterval(9000))
+        check("time: 10 minutes from now", due(readAt("Remind me 10 minutes from now to check")) == thursday.addingTimeInterval(600))
+        check("time: a week from now", clock(due(readAt("Remind me a week from now to pay"))) == "10/15 9:00")
+        check("time: next month", clock(due(readAt("Remind me next month to renew"))) == "11/8 9:00")
+        check("time: next year",
+              due(readAt("Remind me next year to renew")).map { karachi.dateComponents([.year, .month, .day], from: $0) }
+                == DateComponents(year: 2027, month: 10, day: 8))
+        check("time: in 2 years",
+              due(readAt("Remind me in 2 years to renew")).map { karachi.component(.year, from: $0) } == 2028)
+        check("time: next month's is the task", readAt("Remind me to plan next month's budget") == .noTime)
+        check("time: half past 5", clock(due(readAt("Remind me at half past 5 to leave"))) == "10/8 17:30")
+        check("time: quarter to 6", clock(due(readAt("Remind me quarter to 6 to leave"))) == "10/8 17:45")
+        check("time: a quarter past 9, once 9 AM has gone, is the evening",
+              clock(due(readAt("Remind me at a quarter past 9 to call"))) == "10/8 21:15")
+        check("time: quarter to 1 is 12:45", clock(due(readAt("Remind me at quarter to 1"))) == "10/8 12:45")
+        check("time: 'a quarter to 3 kids' is the task",
+              clock(due(readAt("Remind me to hand a quarter to 3 kids on Friday"))) == "10/9 9:00")
+        check("time: quarter past 3 with a day after it",
+              clock(due(readAt("Remind me to get the kids at quarter past 3 on Friday"))) == "10/9 15:15")
+        check("time: at 6 is 6 PM, with or without a day, as before",
+              clock(due(readAt("Remind me at 6 to cook"))) == "10/8 18:00"
+                && clock(due(readAt("Remind me at 6 to wake up", lateNight))) == "10/9 18:00"
+                && clock(due(readAt("Remind me Friday at 6"))) == "10/9 18:00")
+
+        // Found by running several hundred everyday lines through this
+        // and the released parser: each of these went wrong on the way.
+        check("time: a word after the time doesn't make it the task",
+              clock(due(readAt("Remind me to pick up kids at 3pm from school then dinner at 6pm"))) == "10/8 15:00"
+                && clock(due(readAt("Remind me to call John at 3pm instead of 4pm"))) == "10/8 15:00"
+                && clock(due(readAt("Remind me to dial in at 3pm PST / 5pm"))) == "10/8 15:00")
+        check("time: nor a day", clock(due(readAt("Remind me to call Bob Tuesday not Wednesday"))) == "10/13 9:00"
+                && clock(due(readAt("Remind me to send invoice Friday instead of Monday"))) == "10/9 9:00"
+                && clock(due(readAt("Remind me to call mum Friday evening unless she's out Saturday"))) == "10/9 18:00")
+        check("time: a day goes with the time that describes the same thing",
+              clock(due(readAt("Remind me about the Friday 3pm demo Sunday at 5pm"))) == "10/11 17:00")
+        check("time: next month in the task isn't when",
+              clock(due(readAt("Remind me to book flights for next month on Friday"))) == "10/9 9:00"
+                && clock(due(readAt("Remind me next month on the 15th"))) == "10/15 9:00"
+                && readAt("Remind me to plan next year in the spring") == .noTime)
+        check("time: next month closing the line", clock(due(readAt("Remind me to renew next month"))) == "11/8 9:00")
+        check("time: a longer span before 'from now' isn't cut to its last part",
+              readAt("Remind me 1 hour 30 minutes from now") == .noTime)
+        check("time: in 2 hours from now", due(readAt("Remind me in 2 hours from now")) == thursday.addingTimeInterval(7200))
+        check("repeat: every day asks to repeat", Reminders.asksToRepeat("Remind me every day at 9 to take pills"))
+        check("repeat: daily, in a task", Reminders.asksToRepeat("- [ ] Remind me daily at 9"))
+        check("repeat: a plain reminder doesn't", !Reminders.asksToRepeat("Remind me at 9 to take pills"))
+        check("repeat: 'everything' isn't 'every'", !Reminders.asksToRepeat("Remind me at 9 to pack everything"))
+        check("repeat: every Monday, every other week, every 2 hours",
+              Reminders.asksToRepeat("Remind me every Monday at 9") && Reminders.asksToRepeat("Remind me every other week to water")
+                && Reminders.asksToRepeat("Remind me every 2 hours to drink"))
+        for line in ["Remind me to send the weekly report at 5pm", "Remind me to join the daily standup at 9",
+                     "Remind me to call each of the kids at 6pm", "Remind me to check every box Friday",
+                     "Remind me to read the Daily Mail at 8"] {
+            check("repeat: not \"\(line)\"", !Reminders.asksToRepeat(line))
+        }
         // Wisp reads every span and clock time itself, so these don't
         // depend on the real clock.
         check("time: a time after a span of days joins it", clock(due(readAt("Remind me in 3 days at 5pm"))) == "10/11 17:00")
@@ -1995,6 +2161,456 @@ enum SelfTests {
                 == NSRange(location: 0, length: emojiLine.length)
                 && CaretTextView.labelAnchor(of: NSRange(location: 0, length: 3), in: "   " as NSString) == nil)
         try? FileManager.default.removeItem(at: storeFolder)
+
+        // MARK: - Nested lists
+
+        check("nested: a tabbed bullet continues at its depth", SmartEditing.nextListMarker(for: "\t- foo") == "\t- ")
+        check("nested: spaces too", SmartEditing.nextListMarker(for: "    1. foo") == "    2. ")
+        check("nested: a task keeps its box and its depth", SmartEditing.nextListMarker(for: "\t- [x] done") == "\t- [ ] ")
+        check("nested: an empty item is still empty", SmartEditing.nextListMarker(for: "\t- ") == "")
+        check("nested: indented prose isn't a list", SmartEditing.nextListMarker(for: "\tjust text") == nil)
+        check("nested: is a list item", SmartEditing.isListItem("  - a") && SmartEditing.isListItem("- [ ] a")
+                && !SmartEditing.isListItem("a - b"))
+
+        func indented(_ text: String, _ selection: NSRange, outdent: Bool = false) -> (String, NSRange)? {
+            LineEditing.indent(in: text, selection: selection, outdent: outdent).map {
+                ((text as NSString).replacingCharacters(in: $0.range, with: $0.replacement), $0.selection)
+            }
+        }
+        let caretIn = NSRange(location: 3, length: 0)
+        check("tab: nests a list item, caret on the same character",
+              indented("- foo\n- bar", caretIn).map { $0.0 == "\t- foo\n- bar" && $0.1 == NSRange(location: 4, length: 0) } == true)
+        check("tab: in a sentence is left to mean a tab", indented("plain text", caretIn) == nil)
+        check("tab: a numbered item nests", indented("1. one", caretIn)?.0 == "\t1. one")
+        check("tab: a task nests", indented("- [ ] one", caretIn)?.0 == "\t- [ ] one")
+        check("shift-tab: un-nests a tab", indented("\t- foo", caretIn, outdent: true)?.0 == "- foo")
+        check("shift-tab: un-nests four spaces", indented("    - foo", caretIn, outdent: true)?.0 == "- foo")
+        check("shift-tab: un-nests two spaces", indented("  - foo", caretIn, outdent: true)?.0 == "- foo")
+        check("shift-tab: six spaces go back by two", indented("      - foo", caretIn, outdent: true)?.0 == "    - foo")
+        check("shift-tab: nothing to do at the margin", indented("- foo", caretIn, outdent: true) == nil)
+        check("shift-tab: the caret never leaves its line",
+              indented("a\n\t- b", NSRange(location: 2, length: 0), outdent: true)?.1 == NSRange(location: 2, length: 0))
+        let twoLines = NSRange(location: 0, length: 9)
+        check("tab: every line of a selection moves, list or not",
+              indented("one\ntwo\nthree", twoLines).map { $0.0 == "\tone\n\ttwo\n\tthree" && $0.1 == NSRange(location: 0, length: 16) } == true)
+        check("tab: blank lines in a selection stay blank", indented("- a\n\n- b", NSRange(location: 0, length: 8))?.0 == "\t- a\n\n\t- b")
+        check("shift-tab: a selection with nothing to remove is left alone",
+              indented("one\ntwo", NSRange(location: 0, length: 7), outdent: true) == nil)
+        check("tab: CRLF lines keep their breaks", indented("- a\r\n- b", NSRange(location: 0, length: 8))?.0 == "\t- a\r\n\t- b")
+
+        // Through the real delegate: Tab, ⇧Tab and Return.
+        let nestView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let nestCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { nestView.string }, set: { _ in }))
+        nestCoordinator.reminderStore = ReminderStore(
+            fileURL: storeFolder.appendingPathComponent("nest.json"), scheduler: FakeReminderScheduler())
+        nestCoordinator.textView = nestView
+        nestView.delegate = nestCoordinator
+        nestView.textStorage?.delegate = nestCoordinator
+        nestView.string = "- parent\n- child"
+        nestView.setSelectedRange(NSRange(location: 16, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: Tab nests the item", nestView.string == "- parent\n\t- child")
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("editor: Return continues at that depth", nestView.string == "- parent\n\t- child\n\t- ")
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("editor: Return on an empty nested item steps out", nestView.string == "- parent\n\t- child\n- ")
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("editor: …and once more ends the list", nestView.string == "- parent\n\t- child\n\n")
+        nestView.string = "\t- child"
+        nestView.setSelectedRange(NSRange(location: 5, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+        check("editor: ⇧Tab brings it back", nestView.string == "- child")
+        nestView.string = "prose"
+        nestView.setSelectedRange(NSRange(location: 5, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: Tab in prose still types a tab", nestView.string == "prose\t")
+        nestView.string = "2 + 2 ="
+        MarkdownStyler.restyle(nestView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        nestView.setSelectedRange(NSRange(location: 7, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: Tab after = still types the answer", nestView.string == "2 + 2 = 4")
+        nestView.string = "- 2 + 2 ="
+        MarkdownStyler.restyle(nestView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        nestView.setSelectedRange(NSRange(location: 9, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("editor: …in a list item too, rather than nesting it", nestView.string == "- 2 + 2 = 4")
+        // Undo puts the caret back, not a selection over the whole line.
+        nestView.allowsUndo = true
+        let nestWindow = NSWindow(contentRect: nestView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        nestWindow.contentView = nestView
+        nestView.string = "- top\n- foo"
+        nestView.undoManager?.removeAllActions()
+        nestView.setSelectedRange(NSRange(location: 11, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("undo: Tab nested the item", nestView.string == "- top\n\t- foo")
+        nestView.undoManager?.undo()
+        check("undo: the text is back and the caret is where it was",
+              nestView.string == "- top\n- foo" && nestView.selectedRange() == NSRange(location: 11, length: 0))
+        nestView.insertText("!", replacementRange: nestView.selectedRange())
+        check("undo: so the next key adds to the line instead of replacing it", nestView.string == "- top\n- foo!")
+        nestView.string = "milk"
+        nestView.undoManager?.removeAllActions()
+        nestView.setSelectedRange(NSRange(location: 2, length: 0))
+        LineEditing.apply(LineEditing.toggleTask(in: nestView.string, selection: nestView.selectedRange()), to: nestView)
+        nestView.undoManager?.undo()
+        check("undo: ⌘L too", nestView.string == "milk" && nestView.selectedRange() == NSRange(location: 2, length: 0))
+
+        // Return with text selected.
+        nestView.string = "- a\n\t- \n\t- keep\n\t- keep2"
+        nestView.setSelectedRange(NSRange(location: 7, length: 12))
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("return: a selection starting on an empty nested item is replaced, not outdented line by line",
+              !nestView.string.contains("\n- keep") && nestView.string.hasPrefix("- a\n\t- "))
+        nestView.string = "- alpha beta"
+        nestView.setSelectedRange(NSRange(location: 7, length: 5))
+        nestView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        check("return: on a list item, the selection goes and the list carries on", nestView.string == "- alpha\n- ")
+
+        // A lone Tab in a fenced block is a tab.
+        nestView.string = "```\n- name: x\n```"
+        MarkdownStyler.restyle(nestView.textStorage!, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        nestView.setSelectedRange(NSRange(location: 13, length: 0))
+        nestView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        check("code: Tab types a tab rather than nesting the line", nestView.string == "```\n- name: x\t\n```")
+        nestWindow.contentView = nil
+
+        check("shift-tab: a note nested by twos steps by two",
+              indented("- a\n  - b\n    - c", NSRange(location: 16, length: 0), outdent: true)?.0 == "- a\n  - b\n  - c")
+        check("shift-tab: …and one nested by fours by four",
+              indented("- a\n    - b\n        - c", NSRange(location: 22, length: 0), outdent: true)?.0 == "- a\n    - b\n    - c")
+        check("shift-tab: blank lines above are looked past",
+              indented("- a\n  - b\n\n    - c", NSRange(location: 17, length: 0), outdent: true)?.0 == "- a\n  - b\n\n  - c")
+        nestCoordinator.stopObservingReminders()
+
+        // ⌘L and Tab over several lines change each in place: a set
+        // reminder keeps its time, and isn't set a second time.
+        let multi = FakeReminderScheduler()
+        let multiStore = ReminderStore(fileURL: storeFolder.appendingPathComponent("multi.json"), scheduler: multi)
+        let multiView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let multiCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { multiView.string }, set: { _ in }))
+        multiCoordinator.reminderStore = multiStore
+        multiCoordinator.textView = multiView
+        multiView.delegate = multiCoordinator
+        multiView.textStorage?.delegate = multiCoordinator
+        for ch in "Remind me in 15 minutes to test" { multiView.insertText(String(ch), replacementRange: multiView.selectedRange()) }
+        multiView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        for ch in "Remind me in 2 hours to rest" { multiView.insertText(String(ch), replacementRange: multiView.selectedRange()) }
+        multiView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        let setBefore = multiStore.reminders
+        check("multi: two reminders set", setBefore.count == 2 && multi.scheduled.count == 2)
+        func sameReminders(_ lines: [String]) -> Bool {
+            let now = multiStore.reminders.filter { $0.state != .cancelled }
+            return now.count == 2 && zip(setBefore, lines).allSatisfy { was, line in
+                now.contains { $0.id == was.id && $0.fireDate == was.fireDate && $0.line == line }
+            }
+        }
+        multiView.setSelectedRange(NSRange(location: 0, length: (multiView.string as NSString).length))
+        LineEditing.apply(LineEditing.toggleTask(in: multiView.string, selection: multiView.selectedRange()), to: multiView)
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        check("multi: ⌘L over both lines keeps both reminders and their times",
+              multiView.string == "- [ ] Remind me in 15 minutes to test\n- [ ] Remind me in 2 hours to rest\n"
+                && sameReminders(["- [ ] Remind me in 15 minutes to test", "- [ ] Remind me in 2 hours to rest"]))
+        multiView.setSelectedRange(NSRange(location: 0, length: (multiView.string as NSString).length))
+        multiView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        check("multi: Tab over both lines keeps them too",
+              sameReminders(["\t- [ ] Remind me in 15 minutes to test", "\t- [ ] Remind me in 2 hours to rest"]))
+        multiView.setSelectedRange(NSRange(location: 2, length: 0))
+        if let edit = LineEditing.moveLines(in: multiView.string, selection: multiView.selectedRange(), up: false) {
+            LineEditing.apply(edit, to: multiView)
+        }
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        check("multi: ⌥↓ trades the lines' places and nothing else",
+              multiView.string.hasPrefix("\t- [ ] Remind me in 2 hours to rest\n")
+                && sameReminders(["\t- [ ] Remind me in 15 minutes to test", "\t- [ ] Remind me in 2 hours to rest"]))
+        // Two lines pasted over two: one already there, one new.
+        multiView.setSelectedRange(NSRange(location: 0, length: (multiView.string as NSString).length))
+        multiView.insertText("\t- [ ] Remind me in 2 hours to rest\nRemind me in 3 hours to eat\n",
+                             replacementRange: multiView.selectedRange())
+        multiCoordinator.commitDraftReminders(in: multiView, includingCaretLine: true)
+        multiStore.reconcile(noteText: multiView.string)
+        let afterPaste = multiStore.reminders.filter { $0.state != .cancelled }
+        check("multi: a new line pasted beside a kept one is set",
+              afterPaste.count == 2 && afterPaste.contains { $0.line == "Remind me in 3 hours to eat" }
+                && afterPaste.contains { $0.id == setBefore[1].id && $0.fireDate == setBefore[1].fireDate })
+        multiCoordinator.stopObservingReminders()
+
+        // MARK: - Lists: wrapped lines hang under the text
+
+        let hangFont = MinimalTextEditor.makeFont(face: .charter, size: 20)
+        func hang(_ line: String) -> CGFloat {
+            MarkdownStyler.listTextStart(line as NSString, NSRange(location: 0, length: (line as NSString).length), font: hangFont)
+        }
+        check("hang: a bullet", hang("- foo") > 0)
+        check("hang: a number", hang("1. foo") > hang("- foo"))
+        check("hang: a task hangs past its box", hang("- [ ] foo") > hang("- foo") && hang("- [x] foo") > hang("- foo"))
+        check("hang: a nested bullet starts a tab stop further in", hang("\t- foo") == (28 + hang("- foo")).rounded(.up))
+        check("hang: spaces nest too", hang("    - foo") > hang("- foo"))
+        check("hang: prose doesn't", hang("plain text") == 0 && hang("-foo") == 0 && hang("a - b") == 0)
+        check("hang: nor a marker with nothing after it", hang("- ") == 0 && hang("-") == 0)
+        check("hang: nor a year", hang("12345. foo") == 0 && hang("2026 was long") == 0)
+        check("hang: a lettered item", hang("a. foo") > 0 && hang("B. foo") > 0 && hang("ab. foo") == 0)
+        check("hang: two spaces after the marker hang under the text", hang("-  foo") > hang("- foo")
+                && hang("- [ ]  foo") > hang("- [ ] foo"))
+        let hangStorage = NSTextStorage(string: "- item\nplain\n\t- [ ] nested\n# - heading\n")
+        MarkdownStyler.restyle(hangStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        func headIndent(_ at: Int) -> CGFloat {
+            (hangStorage.attribute(.paragraphStyle, at: at, effectiveRange: nil) as? NSParagraphStyle)?.headIndent ?? -1
+        }
+        check("hang: styled on the list lines only",
+              headIndent(0) == hang("- item") && headIndent(7) == 0 && headIndent(13) == hang("\t- [ ] nested")
+                && headIndent(27) == 0)
+        hangStorage.replaceCharacters(in: NSRange(location: 0, length: 2), with: "")
+        MarkdownStyler.restyle(hangStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle,
+                               edited: NSRange(location: 0, length: 0))
+        check("hang: gone when the line stops being a list item", headIndent(0) == 0)
+
+        // MARK: - Reminders: what the notification says
+
+        func saidAs(_ line: String) -> String {
+            Reminders.task(ofLine: line, phrase: Reminders.read(line, now: thursday, calendar: karachi)?.phrase ?? "")
+        }
+        check("task: the time words and 'to' are dropped", saidAs("Remind me in 10 minutes to check the oven") == "Check the oven")
+        check("task: a time at the end", saidAs("Remind me to call the bank in 2 hours") == "Call the bank")
+        check("task: from a task item", saidAs("- [ ] Remind me Friday at 3pm to send the invoice") == "Send the invoice")
+        check("task: 'that' and 'about' too", saidAs("Remind me in 20 that the oven is on") == "The oven is on"
+                && saidAs("Remind me Friday about the launch") == "The launch")
+        check("task: a time in the middle leaves the line as written",
+              saidAs("Remind me to call Bob Friday about the trip") == "Remind me to call Bob Friday about the trip")
+        check("task: nothing but a time leaves the line as written", saidAs("Remind me in 10 minutes") == "Remind me in 10 minutes")
+        check("task: no time found", saidAs("Remind me to breathe") == "Remind me to breathe")
+        check("task: spacing in the time words doesn't matter", saidAs("Remind me in  10   minutes to stretch") == "Stretch")
+        check("task: the word that led to the time goes with it",
+              saidAs("Remind me to pay rent on Friday") == "Pay rent" && saidAs("Remind me to submit by Friday") == "Submit")
+        check("task: …but only when the time closed the line", saidAs("Remind me in 20 that the oven is on") == "The oven is on")
+        check("task: never a lone preposition or punctuation",
+              saidAs("Remind me on Friday") == "Remind me on Friday" && saidAs("Remind me at 5pm ?") == "Remind me at 5pm ?")
+        check("task: more to the time than Wisp took leaves the line as written",
+              saidAs("Remind me Monday or Tuesday to call") == "Remind me Monday or Tuesday to call")
+
+        // MARK: - Find: matches after an edit
+
+        let found = [NSRange(location: 4, length: 2), NSRange(location: 20, length: 2), NSRange(location: 31, length: 2)]
+        check("find: stays on a match that didn't move", EditorModel.matchIndex(atOrAfter: 20, in: found) == 1)
+        check("find: takes the next one when the old place has none", EditorModel.matchIndex(atOrAfter: 21, in: found) == 2)
+        check("find: wraps to the first past the last", EditorModel.matchIndex(atOrAfter: 40, in: found) == 0)
+        check("find: no matches", EditorModel.matchIndex(atOrAfter: 0, in: []) == 0)
+
+        // MARK: - Updater: the card is shown once a version
+
+        let offered = UpdateState.available(version: "0.1.48", zipURL: URL(string: "https://example.com/w.zip")!)
+        check("card: a new version shows it", Updater.showsCard(for: offered, dismissedVersion: nil))
+        check("card: not again once answered", !Updater.showsCard(for: offered, dismissedVersion: "0.1.48"))
+        check("card: nor when it's downloaded", !Updater.showsCard(for: .pending(version: "0.1.48"), dismissedVersion: "0.1.48"))
+        check("card: the next version shows it again", Updater.showsCard(for: offered, dismissedVersion: "0.1.47"))
+        check("card: nothing to show when idle", !Updater.showsCard(for: .idle, dismissedVersion: nil))
+        check("card: 'Later' to an offer doesn't hide the card that says its install failed",
+              Updater.showsCard(for: .failed(version: "0.1.48"), dismissedVersion: "0.1.48"))
+        check("card: a failure answered once stays answered",
+              !Updater.showsCard(for: .failed(version: "0.1.48"),
+                                 dismissedVersion: Updater.cardToken(for: .failed(version: "0.1.48"))))
+
+        // MARK: - Snapshots: thinning by age
+
+        var aged: [String] = []
+        for day in 1...9 {
+            for hour in [8, 12, 18] {
+                aged.append(String(format: "scratchpad-2026-06-%02d-%02d0000-000.md", day, hour))
+            }
+        }
+        let thinned = Snapshots.filesToPrune(aged, keep: 6, daily: 4)
+        let survivors = Set(aged).subtracting(thinned)
+        check("thin: the newest are all kept",
+              aged.suffix(6).allSatisfy(survivors.contains))
+        check("thin: behind them, the last of each earlier day",
+              survivors.contains("scratchpad-2026-06-07-180000-000.md")
+                && survivors.contains("scratchpad-2026-06-06-180000-000.md")
+                && !survivors.contains("scratchpad-2026-06-07-120000-000.md"))
+        check("thin: only as many days back as asked",
+              survivors.count == 6 + 4 && !survivors.contains("scratchpad-2026-06-03-180000-000.md"))
+        check("thin: with no daily copies it's the old ring", Snapshots.filesToPrune(aged, keep: 6).count == aged.count - 6)
+        check("thin: a busy day can't push out last week",
+              !Snapshots.filesToPrune(
+                ["scratchpad-2026-06-01-090000-000.md"]
+                    + (0..<40).map { String(format: "scratchpad-2026-06-09-09%02d00-000.md", $0) },
+                keep: 30, daily: 60
+              ).contains("scratchpad-2026-06-01-090000-000.md"))
+
+        // MARK: - Editor: text replaced from outside
+
+        // A reload or an archive replaces the text; undo must not then
+        // replay edits made to the old text.
+        let adoptView = CaretTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        adoptView.allowsUndo = true
+        let adoptWindow = NSWindow(contentRect: adoptView.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        adoptWindow.contentView = adoptView
+        let adoptCoordinator = MinimalTextEditor.Coordinator(text: Binding(get: { adoptView.string }, set: { _ in }))
+        adoptView.delegate = adoptCoordinator
+        adoptView.insertText("first line of the note\n", replacementRange: NSRange(location: 0, length: 0))
+        adoptView.breakUndoCoalescing()
+        adoptView.insertText("second line", replacementRange: adoptView.selectedRange())
+        check("adopt: typing is undoable beforehand", adoptView.undoManager?.canUndo == true)
+        let adopted = "a synced copy of the note, long enough for the old ranges to land inside it"
+        adoptCoordinator.adopt(adopted, in: adoptView)
+        check("adopt: the new text is shown", adoptView.string == adopted)
+        check("adopt: nothing from the old text is left to undo", adoptView.undoManager?.canUndo == false)
+        adoptView.undoManager?.undo()
+        check("adopt: undo leaves the new text whole", adoptView.string == adopted)
+        adoptView.insertText("!", replacementRange: NSRange(location: (adopted as NSString).length, length: 0))
+        adoptView.undoManager?.undo()
+        check("adopt: edits made afterwards still undo", adoptView.string == adopted)
+        adoptWindow.contentView = nil
+
+        // MARK: - Updater: stale markers
+
+        check("updater: a failed 0.1.46 is stale once 0.1.46 is running", Updater.isSuperseded("0.1.46", by: "0.1.46"))
+        check("updater: …and once something newer is", Updater.isSuperseded("0.1.46", by: "0.1.47"))
+        check("updater: a pending 0.1.47 isn't stale on 0.1.46", !Updater.isSuperseded("0.1.47", by: "0.1.46"))
+        check("updater: versions compare as numbers", !Updater.isSuperseded("0.1.10", by: "0.1.9"))
+
+        // MARK: - StorageLocation: switching folders
+
+        let switchRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wisp-switch-\(UUID().uuidString)")
+        let ownDir = switchRoot.appendingPathComponent("own")
+        let syncA = switchRoot.appendingPathComponent("syncA")
+        let syncB = switchRoot.appendingPathComponent("syncB")
+        for dir in [ownDir, syncA, syncB] {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let switchSuite = "wisp-switch-\(UUID().uuidString)"
+        let switchDefaults = UserDefaults(suiteName: switchSuite)!
+        func read(_ url: URL) -> String? { try? String(contentsOf: url, encoding: .utf8) }
+        let ownNote = StorageLocation.scratchpadURL(in: ownDir)
+        let noteA = StorageLocation.scratchpadURL(in: syncA)
+        let noteB = StorageLocation.scratchpadURL(in: syncB)
+        try? "local".write(to: ownNote, atomically: true, encoding: .utf8)
+
+        let toEmpty = try? StorageLocation.setFolder(
+            syncA, currentText: "local", from: ownNote, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: the note moves to an empty folder",
+              read(noteA) == "local" && toEmpty?.loadedExisting == false && toEmpty?.backupURL == nil)
+        check("switch: …and leaves Wisp's own folder", !FileManager.default.fileExists(atPath: ownNote.path))
+        check("switch: the choice is remembered",
+              switchDefaults.string(forKey: StorageLocation.folderKey) == syncA.path)
+
+        let betweenSynced = try? StorageLocation.setFolder(
+            syncB, currentText: "local", from: noteA, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: leaving a synced folder doesn't delete the note other Macs use",
+              read(noteA) == "local" && read(noteB) == "local" && betweenSynced != nil)
+
+        try? "theirs".write(to: noteA, atomically: true, encoding: .utf8)
+        let joined = try? StorageLocation.setFolder(
+            syncA, currentText: "mine", from: noteB, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: an existing note is loaded", joined?.newText == "theirs" && joined?.loadedExisting == true)
+        check("switch: …and the local text is backed up beside the old one",
+              joined?.backupURL.flatMap(read) == "mine"
+                && joined?.backupURL?.deletingLastPathComponent().standardizedFileURL.path == syncB.standardizedFileURL.path)
+
+        try? "theirs".write(to: noteB, atomically: true, encoding: .utf8)
+        let same = try? StorageLocation.setFolder(
+            syncB, currentText: "theirs", from: noteA, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: no backup when the local text says the same thing",
+              same?.backupURL == nil && same?.loadedExisting == true)
+        let blank = try? StorageLocation.setFolder(
+            syncA, currentText: "", from: noteB, ownFolder: ownDir, defaults: switchDefaults)
+        check("switch: no backup of an empty note", blank?.backupURL == nil && blank?.newText == "theirs")
+
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: noteB)
+        var unreadableThrew = false
+        do {
+            _ = try StorageLocation.setFolder(
+                syncB, currentText: "mine", from: noteA, ownFolder: ownDir, defaults: switchDefaults)
+        } catch { unreadableThrew = true }
+        check("switch: an unreadable note stops the switch",
+              unreadableThrew && switchDefaults.string(forKey: StorageLocation.folderKey) == syncA.path
+                && read(noteA) == "theirs")
+        // The old note was never read: it must survive the switch.
+        let unreadOwn = switchRoot.appendingPathComponent("own2")
+        let emptyDir = switchRoot.appendingPathComponent("fresh")
+        try? FileManager.default.createDirectory(at: unreadOwn, withIntermediateDirectories: true)
+        let unreadNote = StorageLocation.scratchpadURL(in: unreadOwn)
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: unreadNote)
+        let fromUnread = try? StorageLocation.setFolder(
+            emptyDir, currentText: "typed meanwhile", from: unreadNote, keepingOldCopy: true,
+            ownFolder: unreadOwn, defaults: switchDefaults)
+        check("switch: a note that was never read isn't removed, even from Wisp's own folder",
+              fromUnread != nil && (try? Data(contentsOf: unreadNote)) == Data([0xFF, 0xFE, 0x00, 0xD8])
+                && read(StorageLocation.scratchpadURL(in: emptyDir)) == "typed meanwhile")
+        // The old folder has gone (a drive ejected): the backup still
+        // has somewhere to go.
+        let ejected = StorageLocation.scratchpadURL(in: switchRoot.appendingPathComponent("ejected"))
+        let backupHome = switchRoot.appendingPathComponent("own3")
+        try? "theirs".write(to: noteA, atomically: true, encoding: .utf8)
+        let fromEjected = try? StorageLocation.setFolder(
+            syncA, currentText: "typed on the way", from: ejected, ownFolder: backupHome, defaults: switchDefaults)
+        check("switch: with the old folder gone, the backup goes to Wisp's own",
+              fromEjected?.newText == "theirs" && fromEjected?.backupURL.flatMap(read) == "typed on the way"
+                && fromEjected?.backupURL?.deletingLastPathComponent().standardizedFileURL.path
+                    == backupHome.standardizedFileURL.path)
+
+        // Reset never writes over a note it didn't read.
+        let resetOwn = switchRoot.appendingPathComponent("own4")
+        try? FileManager.default.createDirectory(at: resetOwn, withIntermediateDirectories: true)
+        let resetNote = StorageLocation.scratchpadURL(in: resetOwn)
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: resetNote)
+        switchDefaults.set(syncA.path, forKey: StorageLocation.folderKey)
+        try? StorageLocation.resetToDefault(currentText: "current", ownFolder: resetOwn, defaults: switchDefaults)
+        let resetFiles = (try? FileManager.default.contentsOfDirectory(atPath: resetOwn.path)) ?? []
+        let movedAside = resetFiles.first { $0.hasPrefix(StorageLocation.backupPrefix) }
+        check("reset: the current text becomes the note", read(resetNote) == "current"
+                && switchDefaults.string(forKey: StorageLocation.folderKey) == nil)
+        check("reset: a different note already there is moved aside, not lost",
+              movedAside.map { try? Data(contentsOf: resetOwn.appendingPathComponent($0)) } == Data([0xFF, 0xFE, 0x00, 0xD8]))
+        switchDefaults.set(syncA.path, forKey: StorageLocation.folderKey)
+        try? StorageLocation.resetToDefault(currentText: "current", ownFolder: resetOwn, defaults: switchDefaults)
+        check("reset: the same note already there makes no backup",
+              ((try? FileManager.default.contentsOfDirectory(atPath: resetOwn.path)) ?? []).count == resetFiles.count)
+        try? FileManager.default.removeItem(at: switchRoot)
+        switchDefaults.removePersistentDomain(forName: switchSuite)
+
+        // MARK: - EditorModel: a note that can't be read
+
+        let readRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wisp-read-\(UUID().uuidString)")
+        let readOwn = readRoot.appendingPathComponent("own")
+        let readSync = readRoot.appendingPathComponent("sync")
+        try? FileManager.default.createDirectory(at: readSync, withIntermediateDirectories: true)
+        let syncNote = StorageLocation.scratchpadURL(in: readSync)
+        check("read: no file in a folder that exists is a fresh note",
+              EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .fresh)
+        check("read: Wisp's own folder not existing yet is a first launch",
+              EditorModel.readNote(at: StorageLocation.scratchpadURL(in: readOwn), ownFolder: readOwn) == .fresh)
+        check("read: a chosen folder that isn't there is not an empty note",
+              EditorModel.readNote(
+                at: StorageLocation.scratchpadURL(in: readRoot.appendingPathComponent("unmounted")),
+                ownFolder: readOwn) == .unavailable)
+        try? "hello".write(to: syncNote, atomically: true, encoding: .utf8)
+        check("read: a readable note loads", EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .loaded("hello"))
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: syncNote)
+        check("read: a file that isn't UTF-8 is not an empty note",
+              EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .unavailable)
+        try? FileManager.default.removeItem(at: syncNote)
+        try? "".write(to: StorageLocation.placeholderURL(in: readSync), atomically: true, encoding: .utf8)
+        check("read: a note still in iCloud is not an empty note",
+              EditorModel.readNote(at: syncNote, ownFolder: readOwn) == .unavailable)
+        try? FileManager.default.removeItem(at: readRoot)
+
+        check("merge: nothing typed leaves the note as it is", EditorModel.merged(disk: "a\nb", typed: "") == "a\nb")
+        check("merge: typed text follows the note on its own line", EditorModel.merged(disk: "a\nb", typed: "c") == "a\nb\nc")
+        check("merge: no blank line after a trailing newline", EditorModel.merged(disk: "a\n", typed: "c") == "a\nc")
+        check("merge: an empty note takes what was typed", EditorModel.merged(disk: "", typed: "c") == "c")
+
+        let wrote = Date(timeIntervalSince1970: 1_000)
+        check("moved on: a later write by someone else",
+              EditorModel.diskMovedOn(fileMTime: wrote.addingTimeInterval(1), lastLoadedMTime: wrote))
+        check("moved on: not our own last write", !EditorModel.diskMovedOn(fileMTime: wrote, lastLoadedMTime: wrote))
+        check("moved on: a file that appeared where there was none",
+              EditorModel.diskMovedOn(fileMTime: wrote, lastLoadedMTime: nil))
+        check("moved on: no file, nothing to keep", !EditorModel.diskMovedOn(fileMTime: nil, lastLoadedMTime: wrote))
 
         // MARK: - Summary
 

@@ -11,17 +11,7 @@ extension View {
     /// to re-assert pointing-hand on every mouse position update inside
     /// the view, and `onHover` to flip back to arrow on exit.
     func pointerCursor() -> some View {
-        self
-            .onContinuousHover { phase in
-                if case .active = phase {
-                    NSCursor.pointingHand.set()
-                }
-            }
-            .onHover { hovering in
-                if !hovering {
-                    NSCursor.arrow.set()
-                }
-            }
+        modifier(PointerCursor())
     }
 
     /// Force the arrow cursor while hovering this view. Used to keep
@@ -34,5 +24,31 @@ extension View {
                 NSCursor.arrow.set()
             }
         }
+    }
+}
+
+/// The pointing hand is set a tick after each mouse move, not during
+/// it. A button on a card sits over two other things that set a cursor
+/// on the same move — the scrim behind the card (arrow) and the text
+/// view under that (I-beam) — and whichever ran last won, which left
+/// the card's buttons with an arrow. Going last settles it.
+private struct PointerCursor: ViewModifier {
+    @State private var inside = false
+
+    func body(content: Content) -> some View {
+        content
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    inside = true
+                    NSCursor.pointingHand.set()
+                    DispatchQueue.main.async {
+                        if inside { NSCursor.pointingHand.set() }
+                    }
+                case .ended:
+                    inside = false
+                    NSCursor.arrow.set()
+                }
+            }
     }
 }

@@ -130,9 +130,15 @@ enum StorageLocation {
     /// - destination has its own scratchpad.md → save a timestamped
     ///   backup of the local text in the old folder, then load the
     ///   existing file (the "Mac B joining iCloud sync" case)
-    static func setFolder(_ folder: URL, currentText: String) throws -> SwitchResult {
+    static func setFolder(
+        _ folder: URL,
+        currentText: String,
+        from oldURL: URL = currentURL,
+        keepingOldCopy: Bool = false,
+        ownFolder: URL = defaultFolder,
+        defaults: UserDefaults = .standard
+    ) throws -> SwitchResult {
         let fm = FileManager.default
-        let oldURL = currentURL
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let newURL = scratchpadURL(in: folder)
 
@@ -149,33 +155,72 @@ enum StorageLocation {
         }
 
         if fm.fileExists(atPath: newURL.path) {
-            let backupURL = oldURL.deletingLastPathComponent()
-                .appendingPathComponent(backupFilename())
-            try? currentText.write(to: backupURL, atomically: true, encoding: .utf8)
-            let loaded = (try? String(contentsOf: newURL, encoding: .utf8)) ?? currentText
-            // Stop pointing at the old file; remove it so the old
-            // location doesn't keep getting stale writes.
-            try? fm.removeItem(at: oldURL)
-            UserDefaults.standard.set(folder.path, forKey: folderKey)
+            // Read first, and let a failure stop the switch: carrying on
+            // would point Wisp at a note it then writes over.
+            let loaded = try String(contentsOf: newURL, encoding: .utf8)
+            // Nothing to back up when the local note is empty or already
+            // says the same thing.
+            var backupURL: URL?
+            if !currentText.isEmpty, currentText != loaded {
+                // Beside the old note — or, when that folder is the thing
+                // that's gone (a drive ejected), in Wisp's own. Not
+                // `try?` on the last resort: the local note is about to
+                // leave the screen, and the user is told where it went.
+                let name = backupFilename()
+                let beside = oldURL.deletingLastPathComponent().appendingPathComponent(name)
+                if (try? currentText.write(to: beside, atomically: true, encoding: .utf8)) != nil {
+                    backupURL = beside
+                } else {
+                    try fm.createDirectory(at: ownFolder, withIntermediateDirectories: true)
+                    let own = ownFolder.appendingPathComponent(name)
+                    try currentText.write(to: own, atomically: true, encoding: .utf8)
+                    backupURL = own
+                }
+            }
+            if !keepingOldCopy { removeOldCopy(oldURL, ownFolder: ownFolder) }
+            defaults.set(folder.path, forKey: folderKey)
             return SwitchResult(newText: loaded, backupURL: backupURL, loadedExisting: true)
         } else {
             try currentText.write(to: newURL, atomically: true, encoding: .utf8)
-            try? fm.removeItem(at: oldURL)
-            UserDefaults.standard.set(folder.path, forKey: folderKey)
+            if !keepingOldCopy { removeOldCopy(oldURL, ownFolder: ownFolder) }
+            defaults.set(folder.path, forKey: folderKey)
             return SwitchResult(newText: currentText, backupURL: nil, loadedExisting: false)
         }
+    }
+
+    /// `keepingOldCopy`: the old file was never read (see
+    /// `EditorModel.noteUnavailable`), so `currentText` isn't what it
+    /// holds and removing it would delete a note nobody has seen.
+    ///
+    /// The copy left behind is removed only from Wisp's own folder. Any
+    /// other folder may be one other Macs sync through, and deleting the
+    /// note there deletes it for all of them.
+    private static func removeOldCopy(_ oldURL: URL, ownFolder: URL) {
+        guard oldURL.deletingLastPathComponent().standardizedFileURL.path
+                == ownFolder.standardizedFileURL.path else { return }
+        try? FileManager.default.removeItem(at: oldURL)
     }
 
     /// Switch back to the default folder. Copies current text to the
     /// default location and clears the custom path. The custom-folder
     /// file is *not* deleted — other Macs may still be syncing through
     /// it, and removing it here would yank their content too.
-    static func resetToDefault(currentText: String) throws {
-        guard isCustom else { return }
+    ///
+    /// A note already in the default folder that says something else is
+    /// moved aside first, not written over — it may be one that was
+    /// never read.
+    static func resetToDefault(
+        currentText: String, ownFolder: URL = defaultFolder, defaults: UserDefaults = .standard
+    ) throws {
+        guard let custom = defaults.string(forKey: folderKey), !custom.isEmpty else { return }
         let fm = FileManager.default
-        try fm.createDirectory(at: defaultFolder, withIntermediateDirectories: true)
-        let defaultURL = scratchpadURL(in: defaultFolder)
+        try fm.createDirectory(at: ownFolder, withIntermediateDirectories: true)
+        let defaultURL = scratchpadURL(in: ownFolder)
+        if fm.fileExists(atPath: defaultURL.path),
+           (try? String(contentsOf: defaultURL, encoding: .utf8)) != currentText {
+            try fm.moveItem(at: defaultURL, to: ownFolder.appendingPathComponent(backupFilename()))
+        }
         try currentText.write(to: defaultURL, atomically: true, encoding: .utf8)
-        UserDefaults.standard.removeObject(forKey: folderKey)
+        defaults.removeObject(forKey: folderKey)
     }
 }

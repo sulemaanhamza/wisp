@@ -4,6 +4,7 @@ struct BottomBar: View {
     let wordCount: Int
     let notice: String?
     let saveFailed: Bool
+    let noteUnavailable: Bool
     let fontSize: FontSize
     let onCycleFontSize: () -> Void
     let themePreference: ThemePreference
@@ -32,7 +33,11 @@ struct BottomBar: View {
                 }
             }
             .animation(.easeOut(duration: 0.2), value: notice)
-            if saveFailed {
+            if noteUnavailable {
+                Text("can't open your note")
+                    .foregroundStyle(.orange)
+                    .help("Wisp can't read scratchpad.md in its storage folder yet, so nothing is being saved over it. What you type here is kept, and added to the note once it can be read.")
+            } else if saveFailed {
                 Text("couldn't save")
                     .foregroundStyle(.orange)
                     .help("Wisp can't write to its storage folder. Your text is still here — pick another folder from the menu bar icon.")

@@ -137,6 +137,68 @@ enum LineEditing {
         return indent + "- [ ] " + rest
     }
 
+    /// Tab and ⇧Tab: nest the list item the caret is on one level
+    /// deeper, or bring it back out — or every line of a selection that
+    /// runs over more than one. Nil when there's nothing to do, and the
+    /// key keeps its ordinary meaning: Tab in a sentence is still a tab.
+    static func indent(in text: String, selection: NSRange, outdent: Bool) -> Edit? {
+        let ns = text as NSString
+        let lines = lineRange(for: selection, in: ns)
+        var parts: [(old: String, new: String)] = []
+        var location = lines.location
+        while location < NSMaxRange(lines) || (parts.isEmpty && lines.length == 0) {
+            let line = ns.lineRange(for: NSRange(location: location, length: 0))
+            let (content, terminator) = splitTerminator(ns.substring(with: line))
+            let changed: String
+            if content.allSatisfy({ $0 == " " || $0 == "\t" }) {
+                changed = content  // blank lines gain nothing by moving
+            } else if outdent {
+                changed = String(content.dropFirst(outdentWidth(content, lineStart: line.location, in: ns)))
+            } else {
+                changed = "\t" + content
+            }
+            parts.append((content + terminator, changed + terminator))
+            if line.length == 0 { break }
+            location = NSMaxRange(line)
+        }
+        guard parts.count > 1 || parts.first.map({ SmartEditing.isListItem(splitTerminator($0.old).body) }) == true,
+              parts.contains(where: { $0.old != $0.new }) else { return nil }
+        let replacement = parts.map(\.new).joined()
+        let selectionOut: NSRange
+        if selection.length == 0 {
+            // The caret stays on the same character of its line.
+            let delta = (parts[0].new as NSString).length - (parts[0].old as NSString).length
+            selectionOut = NSRange(location: max(lines.location, selection.location + delta), length: 0)
+        } else {
+            selectionOut = NSRange(location: lines.location, length: (replacement as NSString).length)
+        }
+        return Edit(range: lines, replacement: replacement, selection: selectionOut)
+    }
+
+    /// How much leading space one step out removes: a tab, or the spaces
+    /// standing in for one. For spaces, back to the nearest line above
+    /// that's indented less — so a note nested by twos steps by two and
+    /// one nested by fours by four. With nothing above to go by, four,
+    /// or two when the indent isn't a multiple of four.
+    private static func outdentWidth(_ line: String, lineStart: Int, in ns: NSString) -> Int {
+        if line.hasPrefix("\t") { return 1 }
+        let spaces = line.prefix { $0 == " " }.count
+        guard spaces > 0 else { return 0 }
+        var start = lineStart
+        var looked = 0
+        while start > 0, looked < 200 {
+            let above = ns.lineRange(for: NSRange(location: start - 1, length: 0))
+            start = above.location
+            looked += 1
+            let text = splitTerminator(ns.substring(with: above)).body
+            guard !text.allSatisfy({ $0 == " " || $0 == "\t" }) else { continue }
+            if text.hasPrefix("\t") { break }
+            let indent = text.prefix { $0 == " " }.count
+            if indent < spaces { return spaces - indent }
+        }
+        return spaces >= 4 && spaces % 4 == 0 ? 4 : min(spaces, 2)
+    }
+
     /// Offset just past a task's `] `, within the first line of `text`.
     private static func taskTextStart(in text: String) -> Int {
         let ns = text as NSString
@@ -183,6 +245,17 @@ enum LineEditing {
     /// selection into view — not for an edit made away from the caret.
     @MainActor
     static func apply(_ edit: Edit, to textView: NSTextView, scroll: Bool = true) {
+        // These edits replace whole lines, and undo selects what it puts
+        // back — the whole line, so the next key typed replaced it.
+        // Registered ahead of the text view's own undo (which it records
+        // in shouldChangeText), this runs after the text is back and
+        // returns the caret to where it was.
+        let before = textView.selectedRange()
+        textView.undoManager?.registerUndo(withTarget: textView) { view in
+            let length = (view.string as NSString).length
+            guard NSMaxRange(before) <= length else { return }
+            view.setSelectedRange(before)
+        }
         guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
         textView.textStorage?.replaceCharacters(in: edit.range, with: edit.replacement)
         // Selection first: didChangeText hands the text to observers

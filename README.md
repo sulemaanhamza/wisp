@@ -38,7 +38,7 @@ Rather not use Terminal? Open Wisp once and dismiss the warning, then go to **Sy
 - **⌥Space** to summon from anywhere (rebindable)
 - **Light / dark / system** appearance — one-click cycle, follows macOS by default
 - **Eight fonts** to pick from — serifs (Charter, Iowan Old Style, Hoefler Text, Palatino), and sans (Optima, Avenir Next, San Francisco, Verdana)
-- **Smart editing** — lists auto-continue, `---` becomes a divider, `**bold**` and `*italic*` render inline
+- **Smart editing** — lists auto-continue and nest with Tab / ⇧Tab, `---` becomes a divider, `**bold**` and `*italic*` render inline
 - **Checklists** — `- [ ]` continues on Enter; click a box to tick it off, or press ⌘L
 - **Move lines** — ⌥↑ / ⌥↓
 - **Links** — ⌘-click any `https://` link to open it
@@ -53,16 +53,17 @@ Rather not use Terminal? Open Wisp once and dismiss the warning, then go to **Sy
 - **Bold / Italic** — ⌘B / ⌘I
 - **Text size** — ⌘- / ⌘= / ⌘0
 - **Transparency** — choose how much desktop shows through
-- **Version history** — timestamped copies kept locally, so a bad edit is recoverable
+- **Version history** — timestamped copies kept locally for about two months, so a bad edit is recoverable
 - **Auto-update** — downloads new versions in the background
 - **Launch at Login** — toggle in the right-click menu
 - **Plain markdown on disk** at `~/Library/Application Support/Wisp/scratchpad.md`
 - **Sync across Macs** — point at any folder via the right-click menu (iCloud Drive, Dropbox, Syncthing all work)
+- **Obsidian** — point at a folder inside your vault and `scratchpad.md` is a note there, with archived notes beside it in `Inbox/`
 - **On your iPhone** — keep the folder in iCloud Drive and open `scratchpad.md` in the Files app or any markdown editor
 - **Multiple displays** — optionally opens on whichever screen the pointer is on
 - **Recenter** — ⌃⌘C puts the panel back where it first opens, at the size you left it
 
-Click the `?` in the footer for the full keyboard shortcut list.
+Press ⌘/ or click the `?` in the footer for the full keyboard shortcut list.
 
 ## Build from source
 

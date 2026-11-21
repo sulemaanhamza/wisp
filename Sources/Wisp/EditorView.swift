@@ -49,6 +49,10 @@ final class EditorModel: ObservableObject {
                 headings = parsed
             }
             scheduleWordCount()
+            // The matches were found in the text as it was. Found again
+            // on the next step, or when typing pauses — not on every
+            // keystroke, which would search the whole note each time.
+            if showFind { findMatchesStale = true }
             guard didLoad, !isReloading else { return }
             scheduleSave()
         }
@@ -86,6 +90,11 @@ final class EditorModel: ObservableObject {
     /// so the user is never told everything is fine while nothing is
     /// actually being saved.
     @Published private(set) var saveFailed: Bool = false
+    /// True while the note can't be read — a drive not mounted yet, a
+    /// file iCloud hasn't brought down, text in another encoding. Until
+    /// it can, nothing is written: an empty editor saved over a note that
+    /// merely hadn't loaded is how the whole note was lost.
+    @Published private(set) var noteUnavailable: Bool = false
 
     // MARK: Find
     @Published var showFind: Bool = false
@@ -114,6 +123,10 @@ final class EditorModel: ObservableObject {
     private(set) var reminderFlashRange = NSRange(location: 0, length: 0)
     private var findMatches: [NSRange] = []
     private var findIndex = 0
+    private var findMatchesStale = false
+    /// Bumped when ⌘F is pressed with the bar already open: the field
+    /// takes the keyboard back.
+    @Published private(set) var findFocusToken: Int = 0
     @Published var hotKey: HotKey = .default {
         didSet {
             guard didLoad else { return }
@@ -293,23 +306,36 @@ final class EditorModel: ObservableObject {
             UserDefaults.standard.set(Tips.version, forKey: Tips.seenKey)
         }
         let url = StorageLocation.currentURL
-        if let loaded = try? String(contentsOf: url, encoding: .utf8) {
-            text = loaded
+        // What was typed in an earlier session while the note couldn't
+        // be read, and so was never saved into it.
+        let kept = (try? String(contentsOf: Self.unsavedURL, encoding: .utf8)) ?? ""
+        switch Self.readNote(at: url) {
+        case .loaded(let loaded):
+            text = Self.merged(disk: loaded, typed: kept)
             lastSavedText = loaded
             lastLoadedMTime = Self.fileMTime(at: url)
             // A line ticked or deleted while Wisp wasn't running cancels
             // its reminder now, not on the next local edit.
-            ReminderStore.shared.loaded(loaded)
-        } else {
-            // Nothing readable. In a sync folder that usually means
-            // iCloud is still holding the file in the cloud — ask for
-            // it now and pick it up on a later panel open.
+            ReminderStore.shared.loaded(text)
+        case .fresh:
+            text = kept
+        case .unavailable:
+            // In a sync folder this usually means iCloud is still holding
+            // the file in the cloud — ask for it now and pick it up on a
+            // later panel open.
+            text = kept
+            noteUnavailable = true
             StorageLocation.startDownloadIfPlaceholder()
         }
         placeholder = Self.placeholders.randomElement() ?? Self.placeholders[0]
         wordCountTask?.cancel()
         wordCount = Self.countWords(text)
         didLoad = true
+        if !kept.isEmpty, !noteUnavailable {
+            // The note is readable now: the kept text goes into it.
+            saveNow()
+            if !saveFailed { Self.keepUnsaved("") }
+        }
         // Preserve the loaded content as a session-start snapshot
         // (deduped) so each launch is a recoverable point.
         let loadedText = text
@@ -341,6 +367,50 @@ final class EditorModel: ObservableObject {
         case reload
     }
 
+    /// What reading the note at launch found.
+    enum NoteRead: Equatable {
+        case loaded(String)
+        /// No note yet, in a folder that's there to hold one.
+        case fresh
+        /// There is, or may be, a note that can't be read right now.
+        case unavailable
+    }
+
+    /// Tells "no note yet" from "a note we can't get at". Only the first
+    /// may be treated as empty.
+    nonisolated static func readNote(
+        at url: URL, ownFolder: URL = StorageLocation.defaultFolder
+    ) -> NoteRead {
+        if let text = try? String(contentsOf: url, encoding: .utf8) { return .loaded(text) }
+        let fm = FileManager.default
+        let folder = url.deletingLastPathComponent()
+        if fm.fileExists(atPath: url.path) { return .unavailable }
+        if StorageLocation.hasUndownloadedScratchpad(in: folder) { return .unavailable }
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            return .fresh
+        }
+        // A missing folder is a first launch if it's Wisp's own; any
+        // other is a drive or a sync folder that isn't there yet.
+        return folder.standardizedFileURL.path == ownFolder.standardizedFileURL.path ? .fresh : .unavailable
+    }
+
+    /// The note once it can be read again, with whatever was typed while
+    /// it couldn't after it, on lines of its own.
+    nonisolated static func merged(disk: String, typed: String) -> String {
+        if typed.isEmpty { return disk }
+        if disk.isEmpty { return typed }
+        return disk + (disk.hasSuffix("\n") ? "" : "\n") + typed
+    }
+
+    /// Has the file been written by someone else since Wisp last read
+    /// or wrote it?
+    nonisolated static func diskMovedOn(fileMTime: Date?, lastLoadedMTime: Date?) -> Bool {
+        guard let fileMTime else { return false }
+        guard let lastLoadedMTime else { return true }
+        return fileMTime > lastLoadedMTime
+    }
+
     nonisolated static func decideReload(
         fileMTime: Date,
         lastLoadedMTime: Date?,
@@ -364,6 +434,10 @@ final class EditorModel: ObservableObject {
     /// — kept intentionally simple).
     func reloadFromDiskIfChanged() {
         let url = StorageLocation.currentURL
+        if noteUnavailable {
+            recoverNote(at: url)
+            return
+        }
         guard let mtime = Self.fileMTime(at: url) else {
             StorageLocation.startDownloadIfPlaceholder()
             return
@@ -377,13 +451,18 @@ final class EditorModel: ObservableObject {
         case .skipNotNewer:
             return
         case .skipUnsavedEdits:
-            lastLoadedMTime = mtime
+            // lastLoadedMTime stays put, so the save that follows still
+            // sees the file moved on and keeps that version in history.
             return
         case .reload:
             break
         }
         guard let loaded = try? String(contentsOf: url, encoding: .utf8) else { return }
         if loaded != text {
+            // What's about to leave the screen goes to history first. A
+            // sync that delivers an emptied or cut-short file is the case
+            // this is for; an ordinary one costs a deduplicated copy.
+            Snapshots.recordCheckpoint(text: text)
             isReloading = true
             text = loaded
             isReloading = false
@@ -393,6 +472,49 @@ final class EditorModel: ObservableObject {
         // A line deleted on another Mac cancels its reminder here; a
         // reminder line written there is never set here.
         ReminderStore.shared.loaded(loaded)
+    }
+
+    /// The note couldn't be read at launch; try again. When it can, it
+    /// comes back whole, followed by anything typed in the meantime.
+    private func recoverNote(at url: URL) {
+        switch Self.readNote(at: url) {
+        case .unavailable:
+            StorageLocation.startDownloadIfPlaceholder()
+        case .fresh:
+            noteUnavailable = false
+            saveNow()
+        case .loaded(let disk):
+            let combined = Self.merged(disk: disk, typed: text)
+            isReloading = true
+            text = combined
+            isReloading = false
+            lastSavedText = disk
+            lastLoadedMTime = Self.fileMTime(at: url)
+            noteUnavailable = false
+            // With what was typed: a reminder set meanwhile has its line
+            // in the note now, and stays set.
+            ReminderStore.shared.loaded(combined)
+            saveNow()
+        }
+        if !noteUnavailable, !saveFailed { Self.keepUnsaved("") }
+    }
+
+    /// Where text typed while the note can't be read is kept, so that
+    /// quitting — or a crash — before the note comes back doesn't lose
+    /// it. Always in Wisp's own folder: the chosen one may be the thing
+    /// that's missing.
+    nonisolated static var unsavedURL: URL {
+        StorageLocation.defaultFolder.appendingPathComponent("Unsaved.md")
+    }
+
+    nonisolated private static func keepUnsaved(_ text: String) {
+        let fm = FileManager.default
+        if text.isEmpty {
+            try? fm.removeItem(at: unsavedURL)
+        } else {
+            try? fm.createDirectory(at: StorageLocation.defaultFolder, withIntermediateDirectories: true)
+            try? text.write(to: unsavedURL, atomically: true, encoding: .utf8)
+        }
     }
 
     /// Replace the in-memory text with a freshly chosen content (e.g.,
@@ -409,6 +531,9 @@ final class EditorModel: ObservableObject {
         isReloading = false
         lastSavedText = newText
         lastLoadedMTime = Self.fileMTime(at: StorageLocation.currentURL)
+        noteUnavailable = false
+        // The folder switch took what was typed with it.
+        Self.keepUnsaved("")
         ReminderStore.shared.loaded(newText)
     }
 
@@ -440,7 +565,7 @@ final class EditorModel: ObservableObject {
     @discardableResult
     func archiveToInbox() -> Bool {
         let current = text
-        guard Inbox.isWorthArchiving(current) else { return false }
+        guard !noteUnavailable, Inbox.isWorthArchiving(current) else { return false }
         do {
             try Inbox.archive(text: current)
         } catch {
@@ -485,6 +610,8 @@ final class EditorModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled, let self else { return }
             self.wordCount = Self.countWords(self.text)
+            // Typing has paused: the find bar's count catches up too.
+            if self.showFind { self.refreshStaleMatches() }
         }
     }
 
@@ -512,11 +639,16 @@ final class EditorModel: ObservableObject {
         saveNow()
     }
 
-    /// Scroll to a clicked reminder's line and highlight it once. Does
-    /// nothing when the line is gone — filed to the Inbox, or deleted.
+    /// Scroll to a clicked reminder's line and highlight it once. A
+    /// line filed to the Inbox with its note gets a word in the footer;
+    /// a deleted one, nothing.
     func showReminder(id: String) {
-        guard let reminder = ReminderStore.shared.reminder(id: id),
-              let range = ReminderStore.shared.locate(reminder, in: text) else { return }
+        guard let reminder = ReminderStore.shared.reminder(id: id) else { return }
+        guard let range = ReminderStore.shared.locate(reminder, in: text) else {
+            // Wisp opened and nothing moved: say where the line went.
+            if reminder.archived { showNotice("That note is in the Inbox") }
+            return
+        }
         reminderFlashRange = range
         reminderFlashToken &+= 1
     }
@@ -530,8 +662,31 @@ final class EditorModel: ObservableObject {
     // MARK: Find
 
     func openFind() {
+        if showFind {
+            findFocusToken &+= 1
+            refreshStaleMatches()
+            return
+        }
         showFind = true
         recomputeMatches(resetIndex: true)
+    }
+
+    /// The note changed under the matches: find them again, staying on
+    /// the match the highlight was on, or the next one after it.
+    private func refreshStaleMatches() {
+        guard findMatchesStale else { return }
+        findMatchesStale = false
+        let was = findIndex < findMatches.count ? findMatches[findIndex].location : 0
+        findMatches = TextSearch.matches(in: text, query: findQuery)
+        findMatchCount = findMatches.count
+        findIndex = Self.matchIndex(atOrAfter: was, in: findMatches)
+        findCurrentDisplayIndex = findMatches.isEmpty ? 0 : findIndex + 1
+    }
+
+    /// Pure: the first match starting at or after `location`, wrapping
+    /// to the first when there's none.
+    nonisolated static func matchIndex(atOrAfter location: Int, in matches: [NSRange]) -> Int {
+        matches.firstIndex { $0.location >= location } ?? 0
     }
 
     func closeFind() {
@@ -541,18 +696,23 @@ final class EditorModel: ObservableObject {
     }
 
     func findNext() {
+        // After an edit the index already points at the next match on.
+        let wasStale = findMatchesStale
+        refreshStaleMatches()
         guard !findMatches.isEmpty else { return }
-        findIndex = (findIndex + 1) % findMatches.count
+        if !wasStale { findIndex = (findIndex + 1) % findMatches.count }
         navigateToCurrentMatch()
     }
 
     func findPrevious() {
+        refreshStaleMatches()
         guard !findMatches.isEmpty else { return }
         findIndex = (findIndex - 1 + findMatches.count) % findMatches.count
         navigateToCurrentMatch()
     }
 
     private func recomputeMatches(resetIndex: Bool) {
+        findMatchesStale = false
         findMatches = TextSearch.matches(in: text, query: findQuery)
         findMatchCount = findMatches.count
         if resetIndex { findIndex = 0 }
@@ -621,8 +781,16 @@ final class EditorModel: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         guard didLoad else { return }
+        if noteUnavailable {
+            // Try the note again on every save, not only when the panel
+            // regains focus; until it reads, keep what's typed aside.
+            recoverNote(at: StorageLocation.currentURL)
+            if noteUnavailable { Self.keepUnsaved(text) }
+            return
+        }
         let newText = text
         guard newText != lastSavedText || saveFailed else { return }
+        keepOthersChanges(replacedBy: newText)
         // The old version goes to history first, while it still exists
         // on disk — this is the accidental select-all-and-type case.
         Snapshots.recordOnSave(old: lastSavedText, new: newText)
@@ -643,6 +811,24 @@ final class EditorModel: ObservableObject {
         ReminderStore.shared.reconcile(noteText: newText)
     }
 
+    /// Wisp reads the file when the panel opens, not while it's open. If
+    /// another Mac or another editor has written it since, this save is
+    /// about to replace their version: put it in history first.
+    private func keepOthersChanges(replacedBy newText: String) {
+        let url = StorageLocation.currentURL
+        guard Self.diskMovedOn(fileMTime: Self.fileMTime(at: url), lastLoadedMTime: lastLoadedMTime) else { return }
+        guard let theirs = try? String(contentsOf: url, encoding: .utf8) else {
+            // Written in another encoding, or cut short mid-character:
+            // kept as it is, byte for byte.
+            Snapshots.recordFile(at: url)
+            showNotice("Other changes kept in History")
+            return
+        }
+        guard theirs != lastSavedText, theirs != newText else { return }
+        Snapshots.recordCheckpoint(text: theirs)
+        showNotice("Other changes kept in History")
+    }
+
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
@@ -654,10 +840,15 @@ final class EditorModel: ObservableObject {
 
     nonisolated private static func write(_ text: String) throws {
         let url = StorageLocation.currentURL
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        // Only Wisp's own folder is made on demand. A chosen folder that
+        // has gone is a drive ejected or a sync folder signed out of;
+        // recreating it would quietly save to a place nothing syncs.
+        if !StorageLocation.isCustom {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 }
@@ -715,6 +906,7 @@ struct EditorView: View {
                     wordCount: model.wordCount,
                     notice: model.notice,
                     saveFailed: model.saveFailed,
+                    noteUnavailable: model.noteUnavailable,
                     fontSize: model.fontSize,
                     onCycleFontSize: { model.cycleFontSize() },
                     themePreference: model.themePreference,
@@ -733,6 +925,9 @@ struct EditorView: View {
                     }
                 )
             }
+            // Under the shortcuts sheet the note is gone, not dimmed: at
+            // a few percent it was a ghost behind every row.
+            .opacity(model.showHelp ? 0 : 1)
             if model.showFirstRunHint && !model.showTour {
                 FirstRunDot {
                     withAnimation(overlayAnimation) {
@@ -745,7 +940,7 @@ struct EditorView: View {
                 .transition(.opacity)
             }
             if model.showTour {
-                TourOverlay(theme: model.theme) {
+                TourOverlay(theme: model.theme, hotKey: model.hotKey.displayString) {
                     withAnimation(overlayAnimation) {
                         model.dismissTour()
                     }
@@ -785,7 +980,20 @@ struct EditorView: View {
                     onUpdate: { updater.startUpdateAndRestart() },
                     onLater: {
                         updater.cancelAutoApply()
+                        updater.dismissCard()
                         withAnimation(overlayAnimation) {
+                            model.updateDismissed = true
+                        }
+                    },
+                    onTypePast: {
+                        // Typing over a download that was asked for hides
+                        // the card and nothing else: the restart still
+                        // happens. Otherwise it's the same as "Later".
+                        if case .downloading = updater.state {
+                            model.updateDismissed = true
+                        } else {
+                            updater.cancelAutoApply()
+                            updater.dismissCard()
                             model.updateDismissed = true
                         }
                     }
@@ -798,6 +1006,7 @@ struct EditorView: View {
                     query: $model.findQuery,
                     matchCount: model.findMatchCount,
                     currentIndex: model.findCurrentDisplayIndex,
+                    focusToken: model.findFocusToken,
                     onNext: { model.findNext() },
                     onPrev: { model.findPrevious() },
                     onClose: {
@@ -812,6 +1021,8 @@ struct EditorView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        // ⌘/ changes this from the menu, outside any animation of ours.
+        .animation(overlayAnimation, value: model.showHelp)
         .overlay {
             // A true hairline — one device pixel — rather than a 1pt
             // stroke that draws two on Retina.
@@ -843,17 +1054,14 @@ struct EditorView: View {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98))
     }
 
-    /// Show the update overlay whenever there's something installable
-    /// (.available or .pending) or actively downloading, and the user
-    /// hasn't dismissed it for this panel-open session. Yields to
-    /// help/tour/hotkey-capture so those keep their full attention.
+    /// Show the update card when there's something installable, or a
+    /// download under way, that this user hasn't yet answered "Later"
+    /// to — once a version, after which the footer carries it. Yields
+    /// to help/tour/hotkey-capture so those keep their full attention.
     private var shouldShowUpdateOverlay: Bool {
         guard !model.updateDismissed else { return false }
         guard !model.showHelp, !model.showTour, !model.showHotKeyCapture else { return false }
-        switch updater.state {
-        case .available, .downloading, .pending, .failed: return true
-        case .idle: return false
-        }
+        return Updater.showsCard(for: updater.state, dismissedVersion: updater.dismissedVersion)
     }
 
     /// The dark panel needs an edge too: without one it dissolves into

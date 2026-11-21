@@ -49,7 +49,7 @@ works.
 
 **Every pull request must keep them passing**, and new pure logic should
 come with assertions. `scripts/release.sh` refuses to ship if anything
-fails, and CI runs them on macOS 14 and 15 for every push and PR.
+fails, and CI runs them on macOS 15 and 26 for every push and PR.
 
 Anything that needs a running `NSApplication` — the text view, Carbon
 hotkey registration, the panel — is out of scope for the harness. Test

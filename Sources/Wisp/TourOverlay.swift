@@ -6,6 +6,8 @@ import Carbon.HIToolbox
 /// (Return works too). Dismisses on a click outside the card or Esc.
 struct TourOverlay: View {
     let theme: Theme
+    /// The summon shortcut as it is now, not the default.
+    var hotKey: String = HotKey.default.displayString
     let onDismiss: () -> Void
 
     @State private var monitor: Any?
@@ -18,9 +20,9 @@ struct TourOverlay: View {
                 Text("Welcome to Wisp")
                     .font(.system(size: 17, weight: .semibold))
 
-                tip("⌥Space", "summon Wisp from anywhere")
+                tip(hotKey, "summon Wisp from anywhere", key: true)
                 tip("Menu bar icon", "right-click for fonts, transparency, and your shortcut")
-                tip("?", "in the footer, for every shortcut and format")
+                tip("⌘/", "every shortcut and format — or the ? in the footer", key: true)
 
                 HStack {
                     Spacer()
@@ -28,6 +30,7 @@ struct TourOverlay: View {
                         Text("Got it")
                             .frame(minWidth: 72)
                     }
+                    .buttonStyle(PrimaryButtonStyle())
                     .pointerCursor()
                 }
                 .padding(.top, 8)
@@ -61,12 +64,18 @@ struct TourOverlay: View {
     }
 
     @ViewBuilder
-    private func tip(_ key: String, _ description: String) -> some View {
+    private func tip(_ name: String, _ description: String, key: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(key)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 112, alignment: .leading)
+            Group {
+                if key {
+                    Keycap(text: name)
+                } else {
+                    Text(name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 104, alignment: .leading)
             Text(description)
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)

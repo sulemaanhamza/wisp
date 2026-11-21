@@ -30,6 +30,8 @@ enum Tips {
     static let seenKey = "SeenTipsVersion"
 
     static let all: [Tip] = [
+        Tip(version: "0.1.47", keys: "Tab ⇧Tab"),
+        Tip(version: "0.1.47", keys: "⌘/"),
         Tip(version: "0.1.47", keys: "⌃⌘C"),
         Tip(version: "0.1.46", keys: "Remind me in 10 minutes …"),
         Tip(version: "0.1.46", keys: "Remind me Friday at 3pm …"),

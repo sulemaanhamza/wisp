@@ -23,7 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         SystemReminderScheduler.registerActions()
         CaretTextView.reminderLabel = { line in
             ReminderStore.shared.label(forLine: line).map {
-                TrailingLabel(full: $0.text(), short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine)
+                TrailingLabel(
+                    full: $0.text() + ($0.namesTime && Reminders.asksToRepeat(line) ? ", once" : ""),
+                    short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine
+                )
             }
         }
         updater.beforeExit = { [weak self] in self?.prepareToExit() }
@@ -205,6 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         model.openFind()
     }
 
+    @objc func toggleShortcuts(_ sender: Any?) {
+        panelController?.openIfNeeded()
+        if model.showHelp { model.closeHelp() } else { model.openHelp() }
+    }
+
     @objc func recenterPanel(_ sender: Any?) {
         panelController?.openIfNeeded()
         panelController?.recenter()
@@ -290,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         let openPanel = NSOpenPanel()
         openPanel.title = "Choose Wisp's Storage Folder"
         openPanel.prompt = "Choose"
-        openPanel.message = "Pick a folder for scratchpad.md. Choose a folder inside iCloud Drive (or Dropbox, etc.) to sync across Macs."
+        openPanel.message = "Pick a folder for scratchpad.md. One inside iCloud Drive or Dropbox syncs it across Macs; one inside an Obsidian vault makes it a note there."
         openPanel.canChooseFiles = false
         openPanel.canChooseDirectories = true
         openPanel.canCreateDirectories = true
@@ -310,7 +318,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         }
 
         do {
-            let result = try StorageLocation.setFolder(folder, currentText: model.text)
+            let result = try StorageLocation.setFolder(
+                folder, currentText: model.text, keepingOldCopy: model.noteUnavailable
+            )
             if result.loadedExisting {
                 model.adoptLoadedText(result.newText)
             } else {

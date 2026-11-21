@@ -6,7 +6,44 @@ Notable changes to Wisp. Newest first.
 
 ### Added
 
+- **Lists nest.** Tab on a list item moves it in a level, ⇧Tab brings it back, and both work on a selection of several lines. Return continues a nested item at its depth; on an empty one it steps out a level before ending the list. Tab in a sentence is still a tab, and after a sum's `=` it still types the answer.
+- **Long list items wrap under their own text**, not back to the left margin under the bullet.
+- **⌘/ opens the shortcuts sheet**, so it no longer needs the mouse.
 - **⌃⌘C centers the panel** where Wisp first opens, at the size you left it. Handy after dragging it somewhere awkward; the new spot is remembered.
+- **More ways to say a time.** `Remind me in 20 to …`, `in a few minutes`, `in a couple hours`, `in 2 and a half hours`, `10 minutes from now`, `next month`, `next year`, `in 2 years`, `half past 5`, `quarter to 6`.
+- **More sums.** `50 is what % of 200 =`, `10% off 80 =`, rates like `5 hrs × $40 =`, and litres, millilitres, cups, spoons, gallons and stone. A label closed with a colon may hold a number: `Week 2: 40 + 30 =`.
+- **History reaches back two months.** Wisp keeps the newest 30 copies as before, and behind them the last copy of each of the previous 60 days. By count alone, thirty covered under a day for anyone who opens Wisp often.
+
+### Fixed
+
+- **Undo could delete parts of a note that had just synced in.** After Wisp reloaded the note from disk, ⌘Z replayed edits made to the old text against the new one. After Archive to Inbox it failed outright. Undo history now ends where the text was replaced.
+- **A note that couldn't be read at launch was treated as empty**, and the first keystroke saved over it. That covered a drive not mounted yet, a file iCloud hadn't brought down, and text in another encoding. Wisp now writes nothing until the note can be read, says so in the footer, and adds whatever you typed in the meantime after the note once it's back. What you typed is kept on disk meanwhile, so quitting doesn't lose it.
+- **A change synced in while the panel was open was overwritten** by the next keystroke, with no copy kept. Wisp now re-reads the file whenever the panel regains focus, not only when it opens, and a save that would replace a version written elsewhere puts that version in History first.
+- **Switching the storage folder deleted the note from the old folder.** If other Macs synced through it, they lost it too. The old copy is now removed only from Wisp's own folder. The backup of your local text is written before anything else happens, and if it can't be written the switch stops.
+- **Reset Storage Location wrote over whatever note was in Wisp's own folder.** A different one is now moved aside first.
+- **A chosen storage folder that had gone was silently recreated**, so saves went somewhere nothing synced. They now fail visibly instead.
+- **A failed update was permanent.** After one failed install, Wisp showed the failure on every open and never checked for updates again, even after a manual reinstall. It now recovers once that version or a newer one is running, and offers the next release as usual.
+- **An update downloaded earlier could replace a newer Wisp** installed some other way in between.
+- **A day or time inside the task was read as the reminder's time.** `Remind me to cancel the Friday meeting tomorrow` was set for Friday. A day or time with a word straight after it that it describes now gives way to one that says when.
+- **`50 is what % of 200 =` showed 100.** It dropped "is what" and answered 50% of 200.
+- **⌘L on several lines at once set their reminders again from now**, so a sent one fired a second time.
+- **Undoing ⌘L left the whole line selected**, so the next key typed replaced it. The caret now goes back where it was.
+- **Typing with the shortcuts sheet open went into the note behind it.** The first key now closes the sheet and lands in the note.
+- **Buttons on the welcome and update cards showed an arrow, not a pointing hand.**
+- **Find pointed at the wrong text after an edit** made with the bar open, and ⌘F with the bar already open did nothing. It now finds the matches again and gives the field the keyboard back.
+- **Typing with the update card showing went into the note behind it.** The first key now dismisses the card and lands in the note.
+- A notification for a reminder whose note was filed to the Inbox opened Wisp and did nothing. The footer now says where it went.
+
+### Changed
+
+- **The update card is shown once a version.** After "Later" the footer carries the reminder, instead of the card coming back every time the panel opens.
+- **A reminder's notification says the task.** `Remind me in 10 minutes to check the oven` arrives as "Check the oven".
+- **A line that asks to repeat says it won't.** `Remind me every day at 9 …` is reminded once, and its grey text ends ", once".
+- **Wisp sets nothing rather than guess.** A number it can't put a unit to (`in 3 business days`, `in 1 to 2 hours`) sets no reminder, and a rate needs hours, days or weeks (`90 min × $40 =` has no answer).
+- **Sums of time read the way they're said.** `2 h + 45 min =` shows 2 h 45 min rather than 2.75 h. Ask for a unit (`… in h =`) and you get the decimal.
+- **Typing in a long note with many headings is faster.** The heading list is re-read on every keystroke; that took 6.5 ms at 100 KB and now takes 0.2 ms.
+- **The shortcuts sheet is easier to read.** The note steps aside under it instead of showing faintly through every row.
+- The welcome card shows your summon shortcut as it is now, and the update card's main button is filled whether or not Wisp is the active app.
 
 ## 0.1.46 — 2026-10-09
 

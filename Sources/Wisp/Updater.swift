@@ -5,6 +5,7 @@ import CryptoKit
 private let pendingVersionKey = "PendingUpdateVersion"
 private let pendingZipKey = "PendingUpdateZipPath"
 private let failedVersionKey = "FailedUpdateVersion"
+private let dismissedVersionKey = "DismissedUpdateVersion"
 
 enum UpdateState: Equatable {
     case idle
@@ -28,6 +29,39 @@ final class Updater: ObservableObject {
     /// update card. Empty until a release is found (or for older releases
     /// without the highlights convention).
     @Published private(set) var highlights: [String] = []
+
+    /// The version whose card was answered "Later" — or typed past. The
+    /// card is shown once a version; after that the footer carries it.
+    @Published private(set) var dismissedVersion = UserDefaults.standard.string(forKey: dismissedVersionKey)
+
+    func dismissCard() {
+        guard let token = Self.cardToken(for: state), token != dismissedVersion else { return }
+        dismissedVersion = token
+        UserDefaults.standard.set(token, forKey: dismissedVersionKey)
+    }
+
+    /// What a dismissal is remembered by. A failed install is its own
+    /// thing: "Later" to the offer of 0.1.48 mustn't also hide the card
+    /// that explains why 0.1.48 couldn't be installed.
+    nonisolated static func cardToken(for state: UpdateState) -> String? {
+        guard let version = version(of: state) else { return nil }
+        if case .failed = state { return version + " failed" }
+        return version
+    }
+
+    nonisolated static func version(of state: UpdateState) -> String? {
+        switch state {
+        case .idle: return nil
+        case .available(let version, _), .downloading(let version), .pending(let version), .failed(let version):
+            return version
+        }
+    }
+
+    /// Pure: does this state still have a card to show?
+    nonisolated static func showsCard(for state: UpdateState, dismissedVersion: String?) -> Bool {
+        guard let token = cardToken(for: state) else { return false }
+        return token != dismissedVersion
+    }
 
     private let owner = "sulemaanhamza"
     private let repo = "wisp"
@@ -56,7 +90,12 @@ final class Updater: ObservableObject {
     private var expectedDigest: String?
 
     init() {
-        if let failed = UserDefaults.standard.string(forKey: failedVersionKey) {
+        let failed = UserDefaults.standard.string(forKey: failedVersionKey)
+        if let failed, Self.isSuperseded(failed, by: Self.currentVersion) {
+            // Installed by hand, or by Homebrew, since it failed. Without
+            // this the failure card came back on every open, for good.
+            UserDefaults.standard.removeObject(forKey: failedVersionKey)
+        } else if let failed {
             state = .failed(version: failed)
         } else if let pending = UserDefaults.standard.string(forKey: pendingVersionKey) {
             state = .pending(version: pending)
@@ -103,7 +142,6 @@ final class Updater: ObservableObject {
         guard Self.isBundled else { return }
         if case .pending = state { return }
         if case .downloading = state { return }
-        if case .failed = state { return }
         guard Self.shouldCheck(now: Date(), lastCheckedAt: lastCheckedAt) else { return }
         lastCheckedAt = Date()
         do {
@@ -112,6 +150,12 @@ final class Updater: ObservableObject {
             let local = Self.currentVersion
             guard remote.compare(local, options: .numeric) == .orderedDescending else { return }
             guard let asset = release.assets.first(where: { $0.name.hasSuffix(".zip") }) else { return }
+            // A release that couldn't be installed isn't offered again,
+            // but the one after it is: the cause may be gone by then.
+            if case .failed(let failed) = state {
+                guard Self.isSuperseded(failed, by: remote), failed != remote else { return }
+                UserDefaults.standard.removeObject(forKey: failedVersionKey)
+            }
             highlights = ReleaseNotes.highlights(from: release.body ?? "")
             expectedDigest = Self.sha256Hex(fromDigestField: asset.digest)
             state = .available(version: remote, zipURL: asset.browserDownloadUrl)
@@ -120,14 +164,10 @@ final class Updater: ObservableObject {
         }
     }
 
-    /// Clear a failed update so the next check can offer it again —
-    /// the user may have moved Wisp somewhere writable since.
-    func retryAfterFailure() {
-        guard case .failed = state else { return }
-        UserDefaults.standard.removeObject(forKey: failedVersionKey)
-        lastCheckedAt = nil
-        state = .idle
-        Task { await check() }
+    /// Pure: is `version` no newer than `current`? A pending or failed
+    /// update for a version Wisp has already reached is stale.
+    nonisolated static func isSuperseded(_ version: String, by current: String) -> Bool {
+        version.compare(current, options: .numeric) != .orderedDescending
     }
 
     func handleClick() {
@@ -217,6 +257,12 @@ final class Updater: ObservableObject {
         // on every launch retrying a broken zip.
         defaults.removeObject(forKey: pendingVersionKey)
         defaults.removeObject(forKey: pendingZipKey)
+        // Updated some other way since the download: unpacking it now
+        // would put an older Wisp over a newer one.
+        if isSuperseded(version, by: currentVersion) {
+            try? FileManager.default.removeItem(atPath: zipPath)
+            return false
+        }
         if apply(zipPath: zipPath) { return true }
         // Remember the failure so the next launch can explain itself
         // instead of quietly offering the same update forever.
@@ -277,12 +323,19 @@ final class Updater: ObservableObject {
 
     enum UpdateError: Error {
         case digestMismatch
+        case badResponse
     }
 
     nonisolated private static func downloadZip(
         from url: URL, version: String, expecting digest: String?
     ) async throws -> URL {
-        let (tempURL, _) = try await URLSession.shared.download(from: url)
+        let (tempURL, response) = try await URLSession.shared.download(from: url)
+        // An error page saved as a zip would become a "ready" update
+        // that can only fail.
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw UpdateError.badResponse
+        }
         if let digest {
             let actual = try sha256Hex(ofFileAt: tempURL)
             guard actual.caseInsensitiveCompare(digest) == .orderedSame else {

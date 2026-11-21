@@ -18,6 +18,14 @@ enum SmartEditing {
     /// the current line is an empty list item — the caller should treat that
     /// as a signal to exit the list.
     static func nextListMarker(for line: String) -> String? {
+        // A nested item continues at its own depth.
+        let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+        let item = String(line.dropFirst(indent.count))
+        guard let marker = nextMarker(forItem: item) else { return nil }
+        return marker.isEmpty ? "" : indent + marker
+    }
+
+    private static func nextMarker(forItem line: String) -> String? {
         // Task items are bullets too, so they have to be matched before
         // the plain-bullet rule below — otherwise Enter continues the
         // list but drops the box.
@@ -48,6 +56,12 @@ enum SmartEditing {
             return "\(Character(UnicodeScalar(ascii + 1))). "
         }
         return nil
+    }
+
+    /// Is this line a list item — bullet, number, letter or task — at
+    /// any depth?
+    static func isListItem(_ line: String) -> Bool {
+        nextListMarker(for: line) != nil
     }
 
     private static func isEmptyAfter(_ range: Range<String.Index>, in line: String) -> Bool {

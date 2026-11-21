@@ -152,10 +152,96 @@ enum MarkdownStyler {
                 continue
             }
 
+            // A list item's wrapped lines hang under its text, not
+            // under its marker.
+            let hang = listTextStart(ns, content, font: style.base)
+            if hang > 0 {
+                storage.addAttribute(.paragraphStyle, value: hangingParagraph(hang), range: content)
+            }
+
             if mayBeTask(ns, content) {
                 styleCheckedItem(content, storage: storage, ns: ns, style: style)
             }
         }
+    }
+
+    /// How far in a list item's text starts: past its indentation, its
+    /// bullet or number, and its checkbox. 0 when the line isn't one.
+    static func listTextStart(_ ns: NSString, _ content: NSRange, font: NSFont) -> CGFloat {
+        let end = NSMaxRange(content)
+        var i = content.location
+        while i < end, ns.character(at: i) == 0x20 || ns.character(at: i) == 0x09 { i += 1 }
+        guard i + 1 < end else { return 0 }
+        var j = i
+        let c = ns.character(at: j)
+        if c == 0x2D || c == 0x2A || c == 0x2B {            // - * +
+            j += 1
+        } else if c >= 0x30, c <= 0x39 {                     // 12.
+            while j < end, j - i < 4, ns.character(at: j) >= 0x30, ns.character(at: j) <= 0x39 { j += 1 }
+            guard j < end, ns.character(at: j) == 0x2E else { return 0 }
+            j += 1
+        } else if (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A),   // a. B.
+                  ns.character(at: j + 1) == 0x2E {
+            j += 2
+        } else {
+            return 0
+        }
+        guard j < end, ns.character(at: j) == 0x20 else { return 0 }
+        // Every space before the text: "-  item" hangs under "item".
+        while j < end, ns.character(at: j) == 0x20 { j += 1 }
+        // "[ ] " after a bullet.
+        if c == 0x2D || c == 0x2A || c == 0x2B, j + 3 < end, ns.character(at: j) == 0x5B,
+           ns.character(at: j + 2) == 0x5D, ns.character(at: j + 3) == 0x20 {
+            j += 3
+            while j < end, ns.character(at: j) == 0x20 { j += 1 }
+        }
+        guard j < end else { return 0 }
+        // Walk the prefix the way layout does: a tab runs to the next
+        // stop, anything else is as wide as it's drawn.
+        var x: CGFloat = 0
+        var run = i
+        for k in content.location..<i {
+            if ns.character(at: k) == 0x09 {
+                x = ((x / tabInterval).rounded(.down) + 1) * tabInterval
+            } else {
+                x += width(of: " ", font: font)
+            }
+            run = k + 1
+        }
+        return (x + width(of: ns.substring(with: NSRange(location: run, length: j - run)), font: font)).rounded(.up)
+    }
+
+    /// TextKit's default tab stops.
+    private static let tabInterval: CGFloat = 28
+
+    /// Marker widths in `markerFont`: there are only a handful, and
+    /// measuring text is the slow part. Thrown away when the font
+    /// changes.
+    private static var markerWidths: [String: CGFloat] = [:]
+    private static var markerFont: NSFont?
+
+    private static func width(of marker: String, font: NSFont) -> CGFloat {
+        if markerFont !== font {
+            markerFont = font
+            markerWidths.removeAll(keepingCapacity: true)
+        }
+        if let known = markerWidths[marker] { return known }
+        let measured = (marker as NSString).size(withAttributes: [.font: font]).width
+        if markerWidths.count > 2_000 { markerWidths.removeAll(keepingCapacity: true) }
+        markerWidths[marker] = measured
+        return measured
+    }
+
+    private static var hangingParagraphs: [CGFloat: NSParagraphStyle] = [:]
+
+    private static func hangingParagraph(_ indent: CGFloat) -> NSParagraphStyle {
+        if let known = hangingParagraphs[indent] { return known }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineHeightMultiple = lineHeightMultiple
+        paragraph.headIndent = indent
+        if hangingParagraphs.count > 500 { hangingParagraphs.removeAll() }
+        hangingParagraphs[indent] = paragraph
+        return paragraph
     }
 
     /// Only lines that end in `=` pay for a parse. The answer sits on

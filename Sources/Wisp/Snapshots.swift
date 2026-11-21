@@ -13,9 +13,14 @@ enum Snapshots {
     static let folderName = "History"
     static let prefix = "scratchpad-"
     static let suffix = ".md"
-    /// How many snapshots to keep. Each is a full copy, but scratchpads
-    /// are small, so the ring can be generous.
+    /// How many of the newest snapshots to keep, whatever their age.
+    /// Each is a full copy, but scratchpads are small, so the ring can
+    /// be generous.
     static let keep = 30
+    /// Behind those, the last snapshot of each earlier day, for this
+    /// many days. Thirty by count alone covered under a day for someone
+    /// who opens Wisp fifty times a day; this reaches back two months.
+    static let keepDaily = 60
 
     /// History always lives in Wisp's own Application Support folder,
     /// never inside a user-chosen sync folder. A safety net kept inside
@@ -45,14 +50,22 @@ enum Snapshots {
     }
 
     /// Given all filenames in the history folder, return the snapshot
-    /// files to delete to keep only the newest `keep`. Names embed a
-    /// sortable timestamp, so lexicographic order is chronological.
-    static func filesToPrune(_ names: [String], keep: Int) -> [String] {
+    /// files to delete: everything but the newest `keep`, and behind
+    /// them the last snapshot of each of `daily` earlier days. Names
+    /// embed a sortable timestamp, so lexicographic order is
+    /// chronological and the day is a prefix of the name.
+    static func filesToPrune(_ names: [String], keep: Int, daily: Int = 0) -> [String] {
         let snaps = names
             .filter { $0.hasPrefix(prefix) && $0.hasSuffix(suffix) }
             .sorted()
         guard snaps.count > keep else { return [] }
-        return Array(snaps.prefix(snaps.count - keep))
+        let older = snaps.prefix(snaps.count - keep)
+        // `scratchpad-2026-06-13`: the day a snapshot was taken.
+        let dayLength = prefix.count + 10
+        var lastOfDay: [Substring: String] = [:]
+        for name in older { lastOfDay[name.prefix(dayLength)] = name }
+        let kept = Set(lastOfDay.values.sorted().suffix(daily))
+        return older.filter { !kept.contains($0) }
     }
 
     /// Sortable, wall-clock filename: `scratchpad-2026-06-13-143022-481.md`.
@@ -85,6 +98,17 @@ enum Snapshots {
     static func recordOnSave(old: String, new: String) {
         guard isDrasticShrink(old: old, new: new) else { return }
         queue.sync { writeIfNew(content: old, now: Date()) }
+    }
+
+    /// Keep a file exactly as it is — for a note that can't be read as
+    /// text and is about to be written over.
+    static func recordFile(at url: URL) {
+        queue.sync {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? fm.copyItem(at: url, to: freeURL(at: Date()))
+            prune()
+        }
     }
 
     static func revealInFinder() {
@@ -139,7 +163,7 @@ enum Snapshots {
     private static func prune() {
         let fm = FileManager.default
         let names = (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
-        for name in filesToPrune(names, keep: keep) {
+        for name in filesToPrune(names, keep: keep, daily: keepDaily) {
             try? fm.removeItem(at: folder.appendingPathComponent(name))
         }
     }

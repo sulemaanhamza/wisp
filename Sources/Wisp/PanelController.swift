@@ -184,6 +184,15 @@ final class PanelController {
 
         panel.onDismiss = { [weak self] in self?.dismiss() }
 
+        // Left open beside another app, the panel never goes through
+        // toggle(): pick up what another Mac or editor wrote each time
+        // it's clicked back into. One stat when nothing has changed.
+        frameObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model.reloadFromDiskIfChanged() }
+        })
+
         outsideClick = OutsideClickMonitor { [weak self] in
             guard let self, self.panel.isVisible else { return }
             // A click elsewhere while the user is mid-task in an overlay
