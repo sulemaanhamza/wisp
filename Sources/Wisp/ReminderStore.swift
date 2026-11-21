@@ -693,7 +693,7 @@ final class SystemReminderScheduler: ReminderScheduling {
         }
         let content = UNMutableNotificationContent()
         content.title = "Wisp"
-        content.body = Reminders.sentence(ofLine: reminder.line)
+        content.body = Reminders.task(ofLine: reminder.line, phrase: reminder.phrase)
         content.sound = .default
         content.categoryIdentifier = Self.category
         // In UTC, so the moment is exact: no daylight-saving hour that

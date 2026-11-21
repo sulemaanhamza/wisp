@@ -91,6 +91,40 @@ enum Reminders {
         return ns.substring(from: start).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static let leadIn = try! NSRegularExpression(
+        pattern: #"^(?:to|that|about)\s+"#, options: .caseInsensitive
+    )
+
+    /// What the notification says: the task, without "Remind me" and
+    /// the words that named the time — "Check the oven", not "Remind me
+    /// in 10 minutes to check the oven". Only when those words open or
+    /// close the line; otherwise, and when nothing else is left, the
+    /// line as written.
+    static func task(ofLine line: String, phrase: String) -> String {
+        let whole = sentence(ofLine: line)
+        guard let body = body(ofLine: line), !phrase.isEmpty else { return whole }
+        // The phrase is kept with single spaces; match it loosely.
+        let words = phrase.split(separator: " ").map { NSRegularExpression.escapedPattern(for: String($0)) }
+        let loose = words.joined(separator: #"\s+"#)
+        let ns = body as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        var rest: String?
+        if let opening = try? NSRegularExpression(pattern: "^" + loose + #"(?=[\s,:]|$)"#, options: .caseInsensitive),
+           let m = opening.firstMatch(in: body, range: all) {
+            rest = ns.substring(from: NSMaxRange(m.range))
+        } else if let closing = try? NSRegularExpression(pattern: #"(?<=\s)"# + loose + #"\s*[.!]?$"#, options: .caseInsensitive),
+                  let m = closing.firstMatch(in: body, range: all) {
+            rest = ns.substring(to: m.range.location)
+        }
+        guard var task = rest?.trimmingCharacters(in: CharacterSet(charactersIn: " \t,:;-–—")) else { return whole }
+        let taskNS = task as NSString
+        if let m = leadIn.firstMatch(in: task, range: NSRange(location: 0, length: taskNS.length)) {
+            task = taskNS.substring(from: NSMaxRange(m.range))
+        }
+        guard let first = task.first else { return whole }
+        return first.uppercased() + task.dropFirst()
+    }
+
     // MARK: Reading the time
     //
     // Wisp reads its own phrases first — spans ("in 10 minutes"), weeks
