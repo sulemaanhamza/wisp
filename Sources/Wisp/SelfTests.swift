@@ -1252,6 +1252,50 @@ enum SelfTests {
         check("time: in the morning, before 9, is today", clock(due(readAt("Remind me in the morning", early))) == "10/8 9:00")
         check("time: the phrase is what matched",
               Reminders.read("Remind me in 10 minutes to check this", now: thursday, calendar: karachi)?.phrase == "in 10 minutes")
+
+        // A day or time that describes the task gives way to one that
+        // says when. Weekdays and spans only: Wisp reads those itself,
+        // so these don't depend on the real clock.
+        check("time: 'the Tuesday call' isn't when", due(readAt("Remind me to move the Tuesday call, in 10 minutes")) == thursday.addingTimeInterval(600))
+        check("time: 'Monday meeting' isn't when", clock(due(readAt("Remind me to prep for Monday meeting on Sunday"))) == "10/11 9:00")
+        check("time: 'the Monday report' isn't when", clock(due(readAt("Remind me to send the Monday report Friday at 3pm"))) == "10/9 15:00")
+        check("time: 'the 7pm table' isn't when", clock(due(readAt("Remind me to book the 7pm table, Friday at 10am"))) == "10/9 10:00")
+        check("time: a day in the task is still read when it's the only one",
+              clock(due(readAt("Remind me to cancel the Friday meeting"))) == "10/9 9:00")
+        check("time: …and so is a time", clock(due(readAt("Remind me Friday to book 7pm dinner"))) == "10/9 19:00")
+        check("time: a day followed by 'about' says when", clock(due(readAt("Remind me to call Bob Friday about the trip"))) == "10/9 9:00")
+        check("time: the opening words always say when", clock(due(readAt("Remind me Friday morning call the Monday team"))) == "10/9 9:00")
+
+        check("time: in 20 is minutes", due(readAt("Remind me in 20 to stretch")) == thursday.addingTimeInterval(1200))
+        check("time: …at the end of the line too", due(readAt("Remind me to stretch in 20")) == thursday.addingTimeInterval(1200))
+        check("time: 'put in 20 dollars' is the task", readAt("Remind me to put in 20 dollars") == .noTime)
+        check("time: 'in 2026' isn't minutes", readAt("Remind me in 2026 to renew") == .noTime)
+        check("time: 'log in 2 times' is the task", readAt("Remind me to log in 2 times") == .noTime)
+        check("time: in a few minutes", due(readAt("Remind me in a few minutes to check")) == thursday.addingTimeInterval(180))
+        check("time: in a couple hours", due(readAt("Remind me in a couple hours")) == thursday.addingTimeInterval(7200))
+        check("time: in 2 and a half hours", due(readAt("Remind me in 2 and a half hours to leave")) == thursday.addingTimeInterval(9000))
+        check("time: 10 minutes from now", due(readAt("Remind me 10 minutes from now to check")) == thursday.addingTimeInterval(600))
+        check("time: a week from now", clock(due(readAt("Remind me a week from now to pay"))) == "10/15 9:00")
+        check("time: next month", clock(due(readAt("Remind me next month to renew"))) == "11/8 9:00")
+        check("time: next year",
+              due(readAt("Remind me next year to renew")).map { karachi.dateComponents([.year, .month, .day], from: $0) }
+                == DateComponents(year: 2027, month: 10, day: 8))
+        check("time: in 2 years",
+              due(readAt("Remind me in 2 years to renew")).map { karachi.component(.year, from: $0) } == 2028)
+        check("time: next month's is the task", readAt("Remind me to plan next month's budget") == .noTime)
+        check("time: half past 5", clock(due(readAt("Remind me at half past 5 to leave"))) == "10/8 17:30")
+        check("time: quarter to 6", clock(due(readAt("Remind me quarter to 6 to leave"))) == "10/8 17:45")
+        check("time: a quarter past 9, once 9 AM has gone, is the evening",
+              clock(due(readAt("Remind me at a quarter past 9 to call"))) == "10/8 21:15")
+        check("time: quarter to 1 is 12:45", clock(due(readAt("Remind me at quarter to 1"))) == "10/8 12:45")
+        check("time: at 6 late at night is 6 AM", clock(due(readAt("Remind me at 6 to wake up", lateNight))) == "10/9 6:00")
+        check("time: at 6:30 late at night is 6:30 AM", clock(due(readAt("Remind me at 6:30 to wake up", lateNight))) == "10/9 6:30")
+        check("time: at 6 in the day is 6 PM", clock(due(readAt("Remind me at 6 to cook"))) == "10/8 18:00")
+        check("time: at 5 is still the afternoon", clock(due(readAt("Remind me at 5 to leave", lateNight))) == "10/9 17:00")
+        check("repeat: every day asks to repeat", Reminders.asksToRepeat("Remind me every day at 9 to take pills"))
+        check("repeat: daily, in a task", Reminders.asksToRepeat("- [ ] Remind me daily at 9"))
+        check("repeat: a plain reminder doesn't", !Reminders.asksToRepeat("Remind me at 9 to take pills"))
+        check("repeat: 'everything' isn't 'every'", !Reminders.asksToRepeat("Remind me at 9 to pack everything"))
         // Wisp reads every span and clock time itself, so these don't
         // depend on the real clock.
         check("time: a time after a span of days joins it", clock(due(readAt("Remind me in 3 days at 5pm"))) == "10/11 17:00")

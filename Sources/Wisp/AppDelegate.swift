@@ -23,7 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         SystemReminderScheduler.registerActions()
         CaretTextView.reminderLabel = { line in
             ReminderStore.shared.label(forLine: line).map {
-                TrailingLabel(full: $0.text(), short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine)
+                TrailingLabel(
+                    full: $0.text() + ($0.namesTime && Reminders.asksToRepeat(line) ? ", once" : ""),
+                    short: $0.shortText(), symbol: $0.symbol, ticksLine: $0.ticksLine
+                )
             }
         }
         updater.beforeExit = { [weak self] in self?.prepareToExit() }
