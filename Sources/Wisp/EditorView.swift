@@ -603,11 +603,16 @@ final class EditorModel: ObservableObject {
         saveNow()
     }
 
-    /// Scroll to a clicked reminder's line and highlight it once. Does
-    /// nothing when the line is gone — filed to the Inbox, or deleted.
+    /// Scroll to a clicked reminder's line and highlight it once. A
+    /// line filed to the Inbox with its note gets a word in the footer;
+    /// a deleted one, nothing.
     func showReminder(id: String) {
-        guard let reminder = ReminderStore.shared.reminder(id: id),
-              let range = ReminderStore.shared.locate(reminder, in: text) else { return }
+        guard let reminder = ReminderStore.shared.reminder(id: id) else { return }
+        guard let range = ReminderStore.shared.locate(reminder, in: text) else {
+            // Wisp opened and nothing moved: say where the line went.
+            if reminder.archived { showNotice("That note is in the Inbox") }
+            return
+        }
         reminderFlashRange = range
         reminderFlashToken &+= 1
     }
