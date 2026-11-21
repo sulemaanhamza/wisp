@@ -43,6 +43,18 @@ dependencies, no Xcode project.
 Wisp tells its own saves apart from a change synced in from another Mac.
 Skipping that is what once made the app revert your last keystrokes.
 
+**Never write over what wasn't read.** A note that can't be read at
+launch is not an empty note: `EditorModel.readNote` tells "no note yet"
+from "a note we can't get at", and until the second clears nothing is
+saved. And before any save, if the file's modification time has moved
+past the one Wisp recorded, someone else wrote it; that version goes to
+History first.
+
+**Replacing the text ends the undo history.** Anything that assigns the
+whole text from outside the editor goes through `Coordinator.adopt`,
+which clears the undo stack. Left in place, ⌘Z replays old ranges
+against the new text.
+
 **Text is plain; formatting is attributes.** Headings, bold, italic,
 code, checkboxes and rules are `NSTextStorage` attributes applied over
 the raw markdown. The characters stay visible and the file stays
@@ -101,7 +113,15 @@ There is no constant to remember to bump.
    `onContinuousHover` to re-assert on each move.
 6. **`NSImage.lockFocus()` fails in headless scripts** — the icon
    generator uses CGContext, CoreText and ImageIO directly.
-7. **`--arch arm64 --arch x86_64` needs Xcode's xcbuild.** The universal
+7. **Undo after a reload deleted text.** `textView.string = …` keeps
+   the undo stack. ⌘Z after a synced reload then applied the old edits'
+   ranges to the new note and removed runs of it; after an archive it
+   raised a range exception. See the rule above.
+8. **A regex per heading line cost 6.5 ms a keystroke** at 100 KB. The
+   heading scan runs on every keystroke; it walks UTF-16 units now.
+   *Lesson: benchmark the per-keystroke path with a large, realistic
+   note, not just the restyle.*
+9. **`--arch arm64 --arch x86_64` needs Xcode's xcbuild.** The universal
    build is two `--triple` builds plus `lipo`, which works with Command
    Line Tools.
 
