@@ -5,6 +5,7 @@ import CryptoKit
 private let pendingVersionKey = "PendingUpdateVersion"
 private let pendingZipKey = "PendingUpdateZipPath"
 private let failedVersionKey = "FailedUpdateVersion"
+private let dismissedVersionKey = "DismissedUpdateVersion"
 
 enum UpdateState: Equatable {
     case idle
@@ -28,6 +29,30 @@ final class Updater: ObservableObject {
     /// update card. Empty until a release is found (or for older releases
     /// without the highlights convention).
     @Published private(set) var highlights: [String] = []
+
+    /// The version whose card was answered "Later" — or typed past. The
+    /// card is shown once a version; after that the footer carries it.
+    @Published private(set) var dismissedVersion = UserDefaults.standard.string(forKey: dismissedVersionKey)
+
+    func dismissCard() {
+        guard let version = Self.version(of: state), version != dismissedVersion else { return }
+        dismissedVersion = version
+        UserDefaults.standard.set(version, forKey: dismissedVersionKey)
+    }
+
+    nonisolated static func version(of state: UpdateState) -> String? {
+        switch state {
+        case .idle: return nil
+        case .available(let version, _), .downloading(let version), .pending(let version), .failed(let version):
+            return version
+        }
+    }
+
+    /// Pure: does this state still have a card to show?
+    nonisolated static func showsCard(for state: UpdateState, dismissedVersion: String?) -> Bool {
+        guard let version = version(of: state) else { return false }
+        return version != dismissedVersion
+    }
 
     private let owner = "sulemaanhamza"
     private let repo = "wisp"

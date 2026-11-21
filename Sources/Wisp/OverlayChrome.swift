@@ -28,6 +28,27 @@ struct OverlayScrim: View {
     }
 }
 
+/// The one thing a card is there for: filled with the accent colour,
+/// whether or not Wisp is the active app. The system's prominent style
+/// goes grey in a panel that doesn't activate its app.
+struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor)
+            )
+            .opacity(!isEnabled ? 0.45 : configuration.isPressed ? 0.8 : 1)
+            .contentShape(Rectangle())
+    }
+}
+
 extension View {
     func overlayCard(theme: Theme, maxWidth: CGFloat = 360) -> some View {
         self

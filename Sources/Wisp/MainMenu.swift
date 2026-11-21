@@ -156,6 +156,13 @@ enum MainMenuBuilder {
         centerItem.keyEquivalentModifierMask = [.command, .control]
         centerItem.target = target
         viewMenu.addItem(centerItem)
+        let helpItem = NSMenuItem(
+            title: "Shortcuts",
+            action: #selector(AppDelegate.toggleShortcuts(_:)),
+            keyEquivalent: "/"
+        )
+        helpItem.target = target
+        viewMenu.addItem(helpItem)
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

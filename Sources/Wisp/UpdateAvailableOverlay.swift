@@ -4,9 +4,12 @@ import Carbon.HIToolbox
 
 /// Shown over the editor when an update is available or already
 /// downloaded. Two choices: install now (downloads first if needed,
-/// then restarts) or dismiss for this panel-open. The dismissal is
-/// per-session — opening the panel again brings the overlay back as
-/// long as the update is still pending.
+/// then restarts) or later. It's shown once a version; after "Later"
+/// the footer's indicator is what's left.
+///
+/// The note keeps the keyboard underneath, so the card must never sit
+/// between someone and what they opened Wisp to write: the first key
+/// typed is taken as "Later" and goes on to the note.
 struct UpdateAvailableOverlay: View {
     let theme: Theme
     let state: UpdateState
@@ -72,7 +75,7 @@ struct UpdateAvailableOverlay: View {
                         Text(primaryLabel)
                             .frame(minWidth: 130)
                     }
-                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(PrimaryButtonStyle())
                     .disabled(isDownloading)
                     .pointerCursor()
 
@@ -80,7 +83,6 @@ struct UpdateAvailableOverlay: View {
                         Text("Later")
                             .frame(minWidth: 60)
                     }
-                    .keyboardShortcut(.cancelAction)
                     .pointerCursor()
                 }
             }
@@ -125,17 +127,14 @@ struct UpdateAvailableOverlay: View {
         return false
     }
 
-    /// Esc — treat as "Later". The panel.onCancel cascade in
-    /// PanelController also handles this, but listening locally means
-    /// the overlay stays in charge of its own dismissal even if
-    /// onCancel ordering changes later.
+    /// Esc is "Later", and so is anything else typed — which then goes
+    /// on to the note, where it was headed. Return included: it used to
+    /// look like the default button's key but never reached it, and a
+    /// stray Return restarting Wisp mid-thought would be worse.
     private func startListening() {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if Int(event.keyCode) == kVK_Escape {
-                onLater()
-                return nil
-            }
-            return event
+            onLater()
+            return Int(event.keyCode) == kVK_Escape ? nil : event
         }
     }
 

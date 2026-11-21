@@ -2201,6 +2201,92 @@ enum SelfTests {
                 && afterPaste.contains { $0.id == setBefore[1].id && $0.fireDate == setBefore[1].fireDate })
         multiCoordinator.stopObservingReminders()
 
+        // MARK: - Lists: wrapped lines hang under the text
+
+        let hangFont = MinimalTextEditor.makeFont(face: .charter, size: 20)
+        func hang(_ line: String) -> CGFloat {
+            MarkdownStyler.listTextStart(line as NSString, NSRange(location: 0, length: (line as NSString).length), font: hangFont)
+        }
+        check("hang: a bullet", hang("- foo") > 0)
+        check("hang: a number", hang("1. foo") > hang("- foo"))
+        check("hang: a task hangs past its box", hang("- [ ] foo") > hang("- foo") && hang("- [x] foo") > hang("- foo"))
+        check("hang: a nested bullet starts a tab stop further in", hang("\t- foo") == (28 + hang("- foo")).rounded(.up))
+        check("hang: spaces nest too", hang("    - foo") > hang("- foo"))
+        check("hang: prose doesn't", hang("plain text") == 0 && hang("-foo") == 0 && hang("a - b") == 0)
+        check("hang: nor a marker with nothing after it", hang("- ") == 0 && hang("-") == 0)
+        check("hang: nor a year", hang("12345. foo") == 0 && hang("2026 was long") == 0)
+        let hangStorage = NSTextStorage(string: "- item\nplain\n\t- [ ] nested\n# - heading\n")
+        MarkdownStyler.restyle(hangStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle)
+        func headIndent(_ at: Int) -> CGFloat {
+            (hangStorage.attribute(.paragraphStyle, at: at, effectiveRange: nil) as? NSParagraphStyle)?.headIndent ?? -1
+        }
+        check("hang: styled on the list lines only",
+              headIndent(0) == hang("- item") && headIndent(7) == 0 && headIndent(13) == hang("\t- [ ] nested")
+                && headIndent(27) == 0)
+        hangStorage.replaceCharacters(in: NSRange(location: 0, length: 2), with: "")
+        MarkdownStyler.restyle(hangStorage, face: .charter, size: .medium, theme: .dark, transparency: .subtle,
+                               edited: NSRange(location: 0, length: 0))
+        check("hang: gone when the line stops being a list item", headIndent(0) == 0)
+
+        // MARK: - Reminders: what the notification says
+
+        func saidAs(_ line: String) -> String {
+            Reminders.task(ofLine: line, phrase: Reminders.read(line, now: thursday, calendar: karachi)?.phrase ?? "")
+        }
+        check("task: the time words and 'to' are dropped", saidAs("Remind me in 10 minutes to check the oven") == "Check the oven")
+        check("task: a time at the end", saidAs("Remind me to call the bank in 2 hours") == "Call the bank")
+        check("task: from a task item", saidAs("- [ ] Remind me Friday at 3pm to send the invoice") == "Send the invoice")
+        check("task: 'that' and 'about' too", saidAs("Remind me in 20 that the oven is on") == "The oven is on"
+                && saidAs("Remind me Friday about the launch") == "The launch")
+        check("task: a time in the middle leaves the line as written",
+              saidAs("Remind me to call Bob Friday about the trip") == "Remind me to call Bob Friday about the trip")
+        check("task: nothing but a time leaves the line as written", saidAs("Remind me in 10 minutes") == "Remind me in 10 minutes")
+        check("task: no time found", saidAs("Remind me to breathe") == "Remind me to breathe")
+        check("task: spacing in the time words doesn't matter", saidAs("Remind me in  10   minutes to stretch") == "Stretch")
+
+        // MARK: - Find: matches after an edit
+
+        let found = [NSRange(location: 4, length: 2), NSRange(location: 20, length: 2), NSRange(location: 31, length: 2)]
+        check("find: stays on a match that didn't move", EditorModel.matchIndex(atOrAfter: 20, in: found) == 1)
+        check("find: takes the next one when the old place has none", EditorModel.matchIndex(atOrAfter: 21, in: found) == 2)
+        check("find: wraps to the first past the last", EditorModel.matchIndex(atOrAfter: 40, in: found) == 0)
+        check("find: no matches", EditorModel.matchIndex(atOrAfter: 0, in: []) == 0)
+
+        // MARK: - Updater: the card is shown once a version
+
+        let offered = UpdateState.available(version: "0.1.48", zipURL: URL(string: "https://example.com/w.zip")!)
+        check("card: a new version shows it", Updater.showsCard(for: offered, dismissedVersion: nil))
+        check("card: not again once answered", !Updater.showsCard(for: offered, dismissedVersion: "0.1.48"))
+        check("card: nor when it's downloaded", !Updater.showsCard(for: .pending(version: "0.1.48"), dismissedVersion: "0.1.48"))
+        check("card: the next version shows it again", Updater.showsCard(for: offered, dismissedVersion: "0.1.47"))
+        check("card: nothing to show when idle", !Updater.showsCard(for: .idle, dismissedVersion: nil))
+
+        // MARK: - Snapshots: thinning by age
+
+        var aged: [String] = []
+        for day in 1...9 {
+            for hour in [8, 12, 18] {
+                aged.append(String(format: "scratchpad-2026-06-%02d-%02d0000-000.md", day, hour))
+            }
+        }
+        let thinned = Snapshots.filesToPrune(aged, keep: 6, daily: 4)
+        let survivors = Set(aged).subtracting(thinned)
+        check("thin: the newest are all kept",
+              aged.suffix(6).allSatisfy(survivors.contains))
+        check("thin: behind them, the last of each earlier day",
+              survivors.contains("scratchpad-2026-06-07-180000-000.md")
+                && survivors.contains("scratchpad-2026-06-06-180000-000.md")
+                && !survivors.contains("scratchpad-2026-06-07-120000-000.md"))
+        check("thin: only as many days back as asked",
+              survivors.count == 6 + 4 && !survivors.contains("scratchpad-2026-06-03-180000-000.md"))
+        check("thin: with no daily copies it's the old ring", Snapshots.filesToPrune(aged, keep: 6).count == aged.count - 6)
+        check("thin: a busy day can't push out last week",
+              !Snapshots.filesToPrune(
+                ["scratchpad-2026-06-01-090000-000.md"]
+                    + (0..<40).map { String(format: "scratchpad-2026-06-09-09%02d00-000.md", $0) },
+                keep: 30, daily: 60
+              ).contains("scratchpad-2026-06-01-090000-000.md"))
+
         // MARK: - Editor: text replaced from outside
 
         // A reload or an archive replaces the text; undo must not then

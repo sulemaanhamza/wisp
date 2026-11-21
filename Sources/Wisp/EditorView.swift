@@ -49,6 +49,10 @@ final class EditorModel: ObservableObject {
                 headings = parsed
             }
             scheduleWordCount()
+            // The matches were found in the text as it was. Found again
+            // on the next step, or when typing pauses — not on every
+            // keystroke, which would search the whole note each time.
+            if showFind { findMatchesStale = true }
             guard didLoad, !isReloading else { return }
             scheduleSave()
         }
@@ -119,6 +123,10 @@ final class EditorModel: ObservableObject {
     private(set) var reminderFlashRange = NSRange(location: 0, length: 0)
     private var findMatches: [NSRange] = []
     private var findIndex = 0
+    private var findMatchesStale = false
+    /// Bumped when ⌘F is pressed with the bar already open: the field
+    /// takes the keyboard back.
+    @Published private(set) var findFocusToken: Int = 0
     @Published var hotKey: HotKey = .default {
         didSet {
             guard didLoad else { return }
@@ -566,6 +574,8 @@ final class EditorModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled, let self else { return }
             self.wordCount = Self.countWords(self.text)
+            // Typing has paused: the find bar's count catches up too.
+            if self.showFind { self.refreshStaleMatches() }
         }
     }
 
@@ -611,8 +621,31 @@ final class EditorModel: ObservableObject {
     // MARK: Find
 
     func openFind() {
+        if showFind {
+            findFocusToken &+= 1
+            refreshStaleMatches()
+            return
+        }
         showFind = true
         recomputeMatches(resetIndex: true)
+    }
+
+    /// The note changed under the matches: find them again, staying on
+    /// the match the highlight was on, or the next one after it.
+    private func refreshStaleMatches() {
+        guard findMatchesStale else { return }
+        findMatchesStale = false
+        let was = findIndex < findMatches.count ? findMatches[findIndex].location : 0
+        findMatches = TextSearch.matches(in: text, query: findQuery)
+        findMatchCount = findMatches.count
+        findIndex = Self.matchIndex(atOrAfter: was, in: findMatches)
+        findCurrentDisplayIndex = findMatches.isEmpty ? 0 : findIndex + 1
+    }
+
+    /// Pure: the first match starting at or after `location`, wrapping
+    /// to the first when there's none.
+    nonisolated static func matchIndex(atOrAfter location: Int, in matches: [NSRange]) -> Int {
+        matches.firstIndex { $0.location >= location } ?? 0
     }
 
     func closeFind() {
@@ -622,18 +655,23 @@ final class EditorModel: ObservableObject {
     }
 
     func findNext() {
+        // After an edit the index already points at the next match on.
+        let wasStale = findMatchesStale
+        refreshStaleMatches()
         guard !findMatches.isEmpty else { return }
-        findIndex = (findIndex + 1) % findMatches.count
+        if !wasStale { findIndex = (findIndex + 1) % findMatches.count }
         navigateToCurrentMatch()
     }
 
     func findPrevious() {
+        refreshStaleMatches()
         guard !findMatches.isEmpty else { return }
         findIndex = (findIndex - 1 + findMatches.count) % findMatches.count
         navigateToCurrentMatch()
     }
 
     private func recomputeMatches(resetIndex: Bool) {
+        findMatchesStale = false
         findMatches = TextSearch.matches(in: text, query: findQuery)
         findMatchCount = findMatches.count
         if resetIndex { findIndex = 0 }
@@ -833,6 +871,9 @@ struct EditorView: View {
                     }
                 )
             }
+            // Under the shortcuts sheet the note is gone, not dimmed: at
+            // a few percent it was a ghost behind every row.
+            .opacity(model.showHelp ? 0 : 1)
             if model.showFirstRunHint && !model.showTour {
                 FirstRunDot {
                     withAnimation(overlayAnimation) {
@@ -845,7 +886,7 @@ struct EditorView: View {
                 .transition(.opacity)
             }
             if model.showTour {
-                TourOverlay(theme: model.theme) {
+                TourOverlay(theme: model.theme, hotKey: model.hotKey.displayString) {
                     withAnimation(overlayAnimation) {
                         model.dismissTour()
                     }
@@ -885,6 +926,7 @@ struct EditorView: View {
                     onUpdate: { updater.startUpdateAndRestart() },
                     onLater: {
                         updater.cancelAutoApply()
+                        updater.dismissCard()
                         withAnimation(overlayAnimation) {
                             model.updateDismissed = true
                         }
@@ -898,6 +940,7 @@ struct EditorView: View {
                     query: $model.findQuery,
                     matchCount: model.findMatchCount,
                     currentIndex: model.findCurrentDisplayIndex,
+                    focusToken: model.findFocusToken,
                     onNext: { model.findNext() },
                     onPrev: { model.findPrevious() },
                     onClose: {
@@ -912,6 +955,8 @@ struct EditorView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        // ⌘/ changes this from the menu, outside any animation of ours.
+        .animation(overlayAnimation, value: model.showHelp)
         .overlay {
             // A true hairline — one device pixel — rather than a 1pt
             // stroke that draws two on Retina.
@@ -943,17 +988,14 @@ struct EditorView: View {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98))
     }
 
-    /// Show the update overlay whenever there's something installable
-    /// (.available or .pending) or actively downloading, and the user
-    /// hasn't dismissed it for this panel-open session. Yields to
-    /// help/tour/hotkey-capture so those keep their full attention.
+    /// Show the update card when there's something installable, or a
+    /// download under way, that this user hasn't yet answered "Later"
+    /// to — once a version, after which the footer carries it. Yields
+    /// to help/tour/hotkey-capture so those keep their full attention.
     private var shouldShowUpdateOverlay: Bool {
         guard !model.updateDismissed else { return false }
         guard !model.showHelp, !model.showTour, !model.showHotKeyCapture else { return false }
-        switch updater.state {
-        case .available, .downloading, .pending, .failed: return true
-        case .idle: return false
-        }
+        return Updater.showsCard(for: updater.state, dismissedVersion: updater.dismissedVersion)
     }
 
     /// The dark panel needs an edge too: without one it dissolves into

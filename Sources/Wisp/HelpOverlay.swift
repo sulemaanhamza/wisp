@@ -31,12 +31,14 @@ enum HelpContent {
                 Row(what: "Next or previous match", how: ["↵", "⇧↵"], kind: .keys),
                 Row(what: "File in the Inbox, start fresh", how: ["⇧⌘↩"], kind: .keys),
                 Row(what: "Center on this display", how: ["⌃⌘C"], kind: .keys),
+                Row(what: "This list", how: ["⌘/"], kind: .keys),
                 Row(what: "Quit", how: ["⌘Q"], kind: .keys),
             ]),
             Section(title: "Editing", rows: [
                 Row(what: "Bold, italic", how: ["⌘B", "⌘I"], kind: .keys),
                 Row(what: "Make a task, or tick it off", how: ["⌘L"], kind: .keys),
                 Row(what: "Move the line up or down", how: ["⌥↑", "⌥↓"], kind: .keys),
+                Row(what: "Nest a list item, or bring it back", how: ["Tab", "⇧Tab"], kind: .keys),
                 Row(what: "Open a link", how: ["⌘-click"], kind: .keys),
                 Row(what: "Text size", how: ["⌘-", "⌘=", "⌘0"], kind: .keys),
                 Row(what: "Insert today's date", how: ["⇧⌘D"], kind: .keys),
@@ -198,7 +200,7 @@ private struct HelpRowView: View {
 }
 
 /// A key as it's printed on the keyboard: a small raised cap.
-private struct Keycap: View {
+struct Keycap: View {
     let text: String
 
     var body: some View {
