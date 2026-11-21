@@ -209,16 +209,21 @@ enum MarkdownStyler {
     /// TextKit's default tab stops.
     private static let tabInterval: CGFloat = 28
 
-    /// Marker widths, by font and marker: there are only a handful, and
-    /// measuring text is the slow part.
+    /// Marker widths in `markerFont`: there are only a handful, and
+    /// measuring text is the slow part. Thrown away when the font
+    /// changes.
     private static var markerWidths: [String: CGFloat] = [:]
+    private static var markerFont: NSFont?
 
     private static func width(of marker: String, font: NSFont) -> CGFloat {
-        let key = "\(font.fontName)|\(font.pointSize)|\(marker)"
-        if let known = markerWidths[key] { return known }
+        if markerFont !== font {
+            markerFont = font
+            markerWidths.removeAll(keepingCapacity: true)
+        }
+        if let known = markerWidths[marker] { return known }
         let measured = (marker as NSString).size(withAttributes: [.font: font]).width
-        if markerWidths.count > 2_000 { markerWidths.removeAll() }
-        markerWidths[key] = measured
+        if markerWidths.count > 2_000 { markerWidths.removeAll(keepingCapacity: true) }
+        markerWidths[marker] = measured
         return measured
     }
 

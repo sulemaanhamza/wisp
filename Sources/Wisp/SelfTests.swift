@@ -117,6 +117,13 @@ enum SelfTests {
         check("nested names",  nested.map(\.name) == ["A", "B", "C"])
 
         check("'#NoSpace' → []", "#NoSpace".extractHeadings().isEmpty)
+        check("headings: seven hashes isn't one", "####### deep".extractHeadings().isEmpty)
+        check("headings: hashes and spaces alone aren't one", "##   \n# ".extractHeadings().isEmpty)
+        check("headings: CRLF lines, names without the break",
+              "# One\r\ntext\r\n## Two  \r\n".extractHeadings().map(\.name) == ["One", "Two"])
+        check("headings: offsets are where the lines start",
+              "a\n# B\n\n### C d".extractHeadings().map(\.lineStart) == [2, 7])
+        check("headings: a # mid-line isn't one", "see # this\nand #that".extractHeadings().isEmpty)
         check("'# ' empty title → []", "# ".extractHeadings().isEmpty)
         check("'##  ' empty title → []", "##  ".extractHeadings().isEmpty)
 
