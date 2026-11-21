@@ -27,7 +27,10 @@ enum InlineMath {
             // Skipping a label ("Rent:") is fine; skipping a number isn't.
             // "5 ft 10 in in cm" must never fall back to "10 in in cm" and
             // show a confident, wrong 25.4 cm.
-            if start > 0, containsNumber(ns.substring(to: start)) { break }
+            // A label closed with a colon is plainly a label, number and
+            // all: "Week 2: 40 + 30".
+            if start > 0, containsNumber(ns.substring(to: start)),
+               !ns.substring(to: start).trimmingCharacters(in: .whitespaces).hasSuffix(":") { continue }
             if let answer = evaluate(ns.substring(from: start)) { return answer }
         }
         return nil
@@ -69,10 +72,40 @@ enum InlineMath {
         if expression.range(of: #"\b\d{4}-\d{1,2}-\d{1,2}\b"#, options: .regularExpression) != nil {
             return nil
         }
+        if sharePattern.firstMatch(
+            in: expression, range: NSRange(location: 0, length: (expression as NSString).length)
+        ) != nil {
+            return shareOf(expression)
+        }
         guard let tokens = tokenize(expression) else { return nil }
         var parser = Parser(tokens: tokens)
         guard let value = parser.parseStatement(), parser.isAtEnd, parser.didOperate else { return nil }
-        return format(value)
+        return format(value, mixed: !parser.didConvert)
+    }
+
+    private static let sharePattern = try! NSRegularExpression(
+        pattern: #"^(.+?)\s+is\s+what\s+(?:%|percent(?:age)?)\s+of\s+(.+)$"#, options: .caseInsensitive
+    )
+
+    /// "50 is what % of 200": the question asked the other way round.
+    /// Read word by word it would drop "is what" and answer 50% of 200.
+    private static func shareOf(_ expression: String) -> String? {
+        let ns = expression as NSString
+        guard let m = sharePattern.firstMatch(in: expression, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        func amount(_ text: String) -> Double? {
+            guard let tokens = tokenize(text) else { return nil }
+            var parser = Parser(tokens: tokens)
+            guard let value = parser.parseStatement(), parser.isAtEnd else { return nil }
+            switch value {
+            case .number(let n), .money(let n, _), .quantity(let n, _): return n
+            case .percent: return nil
+            }
+        }
+        guard let part = amount(ns.substring(with: m.range(at: 1))),
+              let whole = amount(ns.substring(with: m.range(at: 2))), whole != 0 else { return nil }
+        return format(.percent(part / whole * 100))
     }
 
     // MARK: Values
@@ -115,7 +148,7 @@ enum InlineMath {
         case currency(Character, spaced: Bool)
     }
 
-    private static let keywords: Set<String> = ["in", "to", "as", "of", "x"]
+    private static let keywords: Set<String> = ["in", "to", "as", "of", "off", "x"]
 
     /// `2k`, `1.5M` — only straight after a number, and only these
     /// spellings: lowercase `m` is metres.
@@ -219,6 +252,9 @@ enum InlineMath {
         /// Whether anything was actually worked out. A bare number
         /// followed by `=` is left alone.
         var didOperate = false
+        /// The line asked for a unit by name ("in h"), so the answer
+        /// stays in it.
+        var didConvert = false
 
         init(tokens: [Token]) { self.tokens = tokens }
 
@@ -245,6 +281,7 @@ enum InlineMath {
                       let converted = Units.convert(amount, from: unit, to: target) else { return nil }
                 value = .quantity(converted, target)
                 didOperate = true
+                didConvert = true
             }
             return value
         }
@@ -306,6 +343,12 @@ enum InlineMath {
                     guard let whole = parseUnary() else { return nil }
                     didOperate = true
                     return Self.multiply(.number(p / 100), whole, dividing: false)
+                }
+                // "10% off 80" is the price after the discount.
+                if takeWord(["off"]) {
+                    guard let whole = parseUnary() else { return nil }
+                    didOperate = true
+                    return Self.multiply(.number(1 - p / 100), whole, dividing: false)
                 }
                 return .percent(p)
             }
@@ -392,6 +435,13 @@ enum InlineMath {
             case (.money(let x, let c), .money(let y, let d)):
                 guard dividing, c.symbol == d.symbol, y != 0 else { return nil }
                 return .number(x / y)
+            // A rate: "5 hrs × $40", "$200 / 8 hrs". The unit is what the
+            // money is per, and drops out.
+            case (.quantity(let x, _), .money(let y, let c)):
+                return dividing ? nil : .money(x * y, c)
+            case (.money(let x, let c), .quantity(let y, _)):
+                if dividing { return y == 0 ? nil : .money(x / y, c) }
+                return .money(x * y, c)
             case (.money(let x, let c), _):
                 guard let y = b.scalar else { return nil }
                 if dividing { return y == 0 ? nil : .money(x / y, c) }
@@ -425,7 +475,10 @@ enum InlineMath {
 
     // MARK: Output
 
-    static func format(_ value: Value) -> String? {
+    /// `mixed`: a length of time may come back in two units, the way
+    /// it's said — "2 h 45 min", not "2.75 h".
+    static func format(_ value: Value, mixed: Bool = false) -> String? {
+        if mixed, case .quantity(let q, let unit) = value, let spoken = spokenDuration(q, unit) { return spoken }
         switch value {
         case .number(let n):
             return formatNumber(n, maxFraction: 6)
@@ -437,6 +490,30 @@ enum InlineMath {
         case .money(let m, let currency):
             return formatMoney(m, currency)
         }
+    }
+
+    /// Hours that aren't whole as hours and minutes, days as days and
+    /// hours — when that comes out exact. Nil otherwise, and the plain
+    /// decimal stands.
+    private static func spokenDuration(_ q: Double, _ unit: Dimension) -> String? {
+        let smaller: Dimension
+        if unit == UnitDuration.hours {
+            smaller = UnitDuration.minutes
+        } else if Units.symbol(for: unit) == "d" {
+            smaller = UnitDuration.hours
+        } else {
+            return nil
+        }
+        guard q.isFinite, q > 0, q != q.rounded(), q < 1e6,
+              let inSmaller = Units.convert(q, from: unit, to: smaller) else { return nil }
+        let total = inSmaller.rounded()
+        guard abs(inSmaller - total) < 1e-6, let perUnit = Units.convert(1, from: unit, to: smaller) else { return nil }
+        let whole = (total / perUnit).rounded(.down)
+        let rest = total - whole * perUnit
+        guard let restText = formatNumber(rest, maxFraction: 0) else { return nil }
+        let tail = "\(restText) \(Units.symbol(for: smaller))"
+        guard whole > 0, let wholeText = formatNumber(whole, maxFraction: 0) else { return tail }
+        return "\(wholeText) \(Units.symbol(for: unit)) \(tail)"
     }
 
     /// Whole amounts without decimals, anything else to the cent:
@@ -514,10 +591,17 @@ enum Units {
         (["ft", "foot", "feet"], UnitLength.feet, "ft"),
         (["in", "inch", "inches"], UnitLength.inches, "in"),
         (["yd", "yard", "yards"], UnitLength.yards, "yd"),
-        (["kg", "kilogram", "kilograms", "kilo", "kilos"], UnitMass.kilograms, "kg"),
+        (["kg", "kgs", "kilogram", "kilograms", "kilo", "kilos"], UnitMass.kilograms, "kg"),
         (["g", "gram", "grams"], UnitMass.grams, "g"),
         (["lb", "lbs", "pound", "pounds"], UnitMass.pounds, "lb"),
         (["oz", "ounce", "ounces"], UnitMass.ounces, "oz"),
+        (["stone", "stones"], UnitMass.stones, "st"),
+        (["l", "liter", "liters", "litre", "litres"], UnitVolume.liters, "L"),
+        (["ml", "milliliter", "milliliters", "millilitre", "millilitres"], UnitVolume.milliliters, "ml"),
+        (["cup", "cups"], UnitVolume.cups, "cups"),
+        (["tbsp", "tablespoon", "tablespoons"], UnitVolume.tablespoons, "tbsp"),
+        (["tsp", "teaspoon", "teaspoons"], UnitVolume.teaspoons, "tsp"),
+        (["gal", "gallon", "gallons"], UnitVolume.gallons, "gal"),
         (["c", "°c", "celsius"], UnitTemperature.celsius, "°C"),
         (["f", "°f", "fahrenheit"], UnitTemperature.fahrenheit, "°F"),
         (["kelvin"], UnitTemperature.kelvin, "K"),

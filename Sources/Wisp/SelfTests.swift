@@ -1005,6 +1005,37 @@ enum SelfTests {
             ("not a sum =", nil),
             ("12 × 4.5 + 20", nil),
             ("=", nil),
+            // The question asked the other way round, not "50% of 200".
+            ("50 is what % of 200 =", "25%"),
+            ("$30 is what percent of $120 =", "25%"),
+            ("5 is what % of 0 =", nil),
+            ("10% off 80 =", "72"),
+            ("10% off $80 =", "$72"),
+            ("day off 3 + 4 =", "7"),
+            // A rate: the unit is what the money is per.
+            ("5 hrs * $40 =", "$200"),
+            ("$40 × 5 hrs =", "$200"),
+            ("$200 / 8 hrs =", "$25"),
+            ("5 hrs / $40 =", nil),
+            // Time comes back the way it's said, unless a unit was asked for.
+            ("2 h + 45 min =", "2 h 45 min"),
+            ("1 day - 1 h =", "23 h"),
+            ("3 d + 12 h =", "3 d 12 h"),
+            ("7 h / 3 =", "2 h 20 min"),
+            ("0.5 h + 0.25 h =", "45 min"),
+            ("1.5 h + 1.5 h =", "3 h"),
+            ("1 h + 20 s =", "1.01 h"),
+            ("90 min in h =", "1.5 h"),
+            ("2 h + 45 min in h =", "2.75 h"),
+            // A label closed with a colon may hold a number.
+            ("Week 2: 40 + 30 =", "70"),
+            ("2 people: 90 / 2 =", "45"),
+            ("5 ft 10 in in cm =", "177.8 cm"),
+            ("2 cups in ml =", "480 ml"),
+            ("1.5 l + 250 ml =", "1.75 L"),
+            ("12 stone in kg =", "76.2 kg"),
+            ("5 kgs + 2 kg =", "7 kg"),
+            ("3 l =", nil),
         ]
         for (line, expected) in sums {
             check("math: \"\(line)\" → \(expected ?? "nothing")", InlineMath.answer(forLine: line) == expected)
