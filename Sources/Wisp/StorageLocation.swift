@@ -134,6 +134,7 @@ enum StorageLocation {
         _ folder: URL,
         currentText: String,
         from oldURL: URL = currentURL,
+        keepingOldCopy: Bool = false,
         ownFolder: URL = defaultFolder,
         defaults: UserDefaults = .standard
     ) throws -> SwitchResult {
@@ -168,17 +169,21 @@ enum StorageLocation {
                 try currentText.write(to: url, atomically: true, encoding: .utf8)
                 backupURL = url
             }
-            removeOldCopy(oldURL, ownFolder: ownFolder)
+            if !keepingOldCopy { removeOldCopy(oldURL, ownFolder: ownFolder) }
             defaults.set(folder.path, forKey: folderKey)
             return SwitchResult(newText: loaded, backupURL: backupURL, loadedExisting: true)
         } else {
             try currentText.write(to: newURL, atomically: true, encoding: .utf8)
-            removeOldCopy(oldURL, ownFolder: ownFolder)
+            if !keepingOldCopy { removeOldCopy(oldURL, ownFolder: ownFolder) }
             defaults.set(folder.path, forKey: folderKey)
             return SwitchResult(newText: currentText, backupURL: nil, loadedExisting: false)
         }
     }
 
+    /// `keepingOldCopy`: the old file was never read (see
+    /// `EditorModel.noteUnavailable`), so `currentText` isn't what it
+    /// holds and removing it would delete a note nobody has seen.
+    ///
     /// The copy left behind is removed only from Wisp's own folder. Any
     /// other folder may be one other Macs sync through, and deleting the
     /// note there deletes it for all of them.

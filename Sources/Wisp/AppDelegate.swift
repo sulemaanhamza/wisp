@@ -318,7 +318,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         }
 
         do {
-            let result = try StorageLocation.setFolder(folder, currentText: model.text)
+            let result = try StorageLocation.setFolder(
+                folder, currentText: model.text, keepingOldCopy: model.noteUnavailable
+            )
             if result.loadedExisting {
                 model.adoptLoadedText(result.newText)
             } else {

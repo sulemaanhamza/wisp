@@ -2383,6 +2383,18 @@ enum SelfTests {
         check("switch: an unreadable note stops the switch",
               unreadableThrew && switchDefaults.string(forKey: StorageLocation.folderKey) == syncA.path
                 && read(noteA) == "theirs")
+        // The old note was never read: it must survive the switch.
+        let unreadOwn = switchRoot.appendingPathComponent("own2")
+        let emptyDir = switchRoot.appendingPathComponent("fresh")
+        try? FileManager.default.createDirectory(at: unreadOwn, withIntermediateDirectories: true)
+        let unreadNote = StorageLocation.scratchpadURL(in: unreadOwn)
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: unreadNote)
+        let fromUnread = try? StorageLocation.setFolder(
+            emptyDir, currentText: "typed meanwhile", from: unreadNote, keepingOldCopy: true,
+            ownFolder: unreadOwn, defaults: switchDefaults)
+        check("switch: a note that was never read isn't removed, even from Wisp's own folder",
+              fromUnread != nil && (try? Data(contentsOf: unreadNote)) == Data([0xFF, 0xFE, 0x00, 0xD8])
+                && read(StorageLocation.scratchpadURL(in: emptyDir)) == "typed meanwhile")
         try? FileManager.default.removeItem(at: switchRoot)
         switchDefaults.removePersistentDomain(forName: switchSuite)
 

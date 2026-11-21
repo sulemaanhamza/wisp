@@ -450,6 +450,10 @@ final class EditorModel: ObservableObject {
         }
         guard let loaded = try? String(contentsOf: url, encoding: .utf8) else { return }
         if loaded != text {
+            // What's about to leave the screen goes to history first. A
+            // sync that delivers an emptied or cut-short file is the case
+            // this is for; an ordinary one costs a deduplicated copy.
+            Snapshots.recordCheckpoint(text: text)
             isReloading = true
             text = loaded
             isReloading = false
